@@ -1244,7 +1244,7 @@ static int ggml_backend_sched_backend_id(ggml_backend_sched_t sched, ggml_backen
 }
 
 static int ggml_backend_sched_backend_from_buffer(ggml_backend_sched_t sched, const struct ggml_tensor * tensor, const struct ggml_tensor * op) {
-    ggml_backend_buffer_t buffer = tensor->buffer;
+    ggml_backend_buffer_t buffer = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
     if (buffer == NULL) {
         return -1;
     }

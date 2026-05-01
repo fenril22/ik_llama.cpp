@@ -26511,7 +26511,7 @@ struct ggml_cplan ggml_graph_plan(const struct ggml_cgraph * cgraph, int n_threa
                         // F16 -> BF16 and BF16 -> F16 copies go through intermediate F32
                         (node->src[0]->type == GGML_TYPE_F16  && node->src[1] && node->src[1]->type == GGML_TYPE_BF16) ||
                         (node->src[0]->type == GGML_TYPE_BF16 && node->src[1] && node->src[1]->type == GGML_TYPE_F16)) {
-                        cur = ggml_type_size(GGML_TYPE_F32) * node->ne[0] * n_tasks;
+                        cur = ggml_type_size(GGML_TYPE_F32) * (node->ne[0] + CACHE_LINE_SIZE_F32) * n_tasks;
                     }
                 } break;
             case GGML_OP_ADD:
