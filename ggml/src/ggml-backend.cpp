@@ -1249,7 +1249,6 @@ static int ggml_backend_sched_backend_from_buffer(ggml_backend_sched_t sched, co
         return -1;
     }
 
-    //printf("%s: have %d backends, buffer is %s\n", __func__, sched->n_backends, ggml_backend_buffer_name(buffer));
     // find highest prio backend that supports the buffer type and the op
     for (int i = 0; i < sched->n_backends; i++) {
         //printf("  Checking bacckend %d (%s)\n", i, ggml_backend_name(sched->backends[i]));

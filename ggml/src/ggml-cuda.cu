@@ -4645,7 +4645,7 @@ GGML_CALL static bool ggml_backend_cuda_supports_op(ggml_backend_t backend, cons
                 if (ggml_are_same_shape(op->src[0], op->src[1]) && op->src[0]->type == GGML_TYPE_Q8_0 && op->src[1]->type == GGML_TYPE_Q8_0) {
                     return true;
                 }
-                if (src0_type == GGML_TYPE_F16 &&
+                if ((src0_type == GGML_TYPE_F16 || src0_type == GGML_TYPE_F32) &&
                     (src1_type == GGML_TYPE_PLANAR3_0 || src1_type == GGML_TYPE_ISO3_0 ||
                      src1_type == GGML_TYPE_PLANAR4_0 || src1_type == GGML_TYPE_ISO4_0)) {
                     return true;

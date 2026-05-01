@@ -7,6 +7,7 @@
 
 #include "convert.cuh"
 #include "dequantize.cuh"
+#include "cpy-planar-iso.cuh"
 
 #define CUDA_Q8_0_NE_ALIGN 2048
 
@@ -2003,6 +2004,14 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return convert_unary_cuda<float>;
         case GGML_TYPE_BF16:
             return convert_from_bf16_cuda;
+        case GGML_TYPE_PLANAR3_0:
+            return dequantize_row_planar3_0_cuda;
+        case GGML_TYPE_PLANAR4_0:
+            return dequantize_row_planar4_0_cuda;
+        case GGML_TYPE_ISO3_0:
+            return dequantize_row_iso3_0_cuda;
+        case GGML_TYPE_ISO4_0:
+            return dequantize_row_iso4_0_cuda;
         case GGML_TYPE_IQ2_K_R4:
             return dequantize_row_iq2_k_r4_cuda;
         case GGML_TYPE_IQ3_K_R4:

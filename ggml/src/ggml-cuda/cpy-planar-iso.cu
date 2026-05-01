@@ -257,6 +257,188 @@ __global__ void kernel_cpy_f16_iso4(
     blk->rnorm = __float2half(0.0f);
 }
 
+// ── Planar3: F32 → block_planar3_0 (2D Givens + 3-bit) ─────────────
+
+__global__ void kernel_cpy_f32_planar3(
+    const float * __restrict__ src,
+    block_planar3_0 * __restrict__ dst,
+    int64_t n_blocks)
+{
+    const int64_t ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    const float * s = src + ib * QK_PLANAR3;
+    block_planar3_0 * blk = &dst[ib];
+
+    float buf[128];
+    float norm_sq = 0.0f;
+    for (int j = 0; j < QK_PLANAR3; j++) {
+        buf[j] = s[j];
+        norm_sq += buf[j] * buf[j];
+    }
+    float grp_norm = sqrtf(norm_sq);
+    float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
+    for (int j = 0; j < QK_PLANAR3; j++) buf[j] *= inv_norm;
+
+    float rotated[128];
+    for (int p = 0; p < 64; p++) {
+        float c = d_planar_cos[p], s_val = d_planar_sin[p];
+        rotated[p*2]   = c * buf[p*2] - s_val * buf[p*2+1];
+        rotated[p*2+1] = s_val * buf[p*2] + c * buf[p*2+1];
+    }
+
+    for (int j = 0; j < QK_PLANAR3/4; j++) blk->qs[j] = 0;
+    for (int j = 0; j < QK_PLANAR3/8; j++) blk->signs[j] = 0;
+
+    float recon_sq = 0.0f;
+    for (int j = 0; j < QK_PLANAR3; j++) {
+        uint8_t idx = quantize_3bit(rotated[j]);
+        blk->qs[j/4] |= (idx & 0x3) << ((j%4)*2);
+        if (idx & 0x4) blk->signs[j/8] |= (1 << (j%8));
+        recon_sq += d_centroids_3bit[idx] * d_centroids_3bit[idx];
+    }
+
+    float recon_norm = sqrtf(recon_sq);
+    blk->norm = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+}
+
+// ── Planar4: F32 → block_planar4_0 (2D Givens + 4-bit nibble) ──────
+
+__global__ void kernel_cpy_f32_planar4(
+    const float * __restrict__ src,
+    block_planar4_0 * __restrict__ dst,
+    int64_t n_blocks)
+{
+    const int64_t ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    const float * s = src + ib * QK_PLANAR4;
+    block_planar4_0 * blk = &dst[ib];
+
+    float buf[128];
+    float norm_sq = 0.0f;
+    for (int j = 0; j < QK_PLANAR4; j++) {
+        buf[j] = s[j];
+        norm_sq += buf[j] * buf[j];
+    }
+    float grp_norm = sqrtf(norm_sq);
+    float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
+    for (int j = 0; j < QK_PLANAR4; j++) buf[j] *= inv_norm;
+
+    float rotated[128];
+    for (int p = 0; p < 64; p++) {
+        float c = d_planar_cos[p], s_val = d_planar_sin[p];
+        rotated[p*2]   = c * buf[p*2] - s_val * buf[p*2+1];
+        rotated[p*2+1] = s_val * buf[p*2] + c * buf[p*2+1];
+    }
+
+    for (int j = 0; j < 64; j++) blk->qs[j] = 0;
+    float recon_sq = 0.0f;
+    for (int j = 0; j < 128; j++) {
+        uint8_t idx = quantize_4bit(rotated[j]);
+        blk->qs[j/2] |= (idx & 0xF) << ((j%2)*4);
+        recon_sq += d_centroids_4bit[idx] * d_centroids_4bit[idx];
+    }
+
+    float recon_norm = sqrtf(recon_sq);
+    blk->norm = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->rnorm = __float2half(0.0f);
+}
+
+// ── Iso3: F32 → block_iso3_0 (quaternion 4D + 3-bit) ───────────────
+
+__global__ void kernel_cpy_f32_iso3(
+    const float * __restrict__ src,
+    block_iso3_0 * __restrict__ dst,
+    int64_t n_blocks)
+{
+    const int64_t ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    const float * s = src + ib * QK_ISO3;
+    block_iso3_0 * blk = &dst[ib];
+
+    float buf[128];
+    float norm_sq = 0.0f;
+    for (int j = 0; j < QK_ISO3; j++) {
+        buf[j] = s[j];
+        norm_sq += buf[j] * buf[j];
+    }
+    float grp_norm = sqrtf(norm_sq);
+    float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
+    for (int j = 0; j < QK_ISO3; j++) buf[j] *= inv_norm;
+
+    float rotated[128];
+    for (int g = 0; g < 32; g++) {
+        float qw = d_iso_qw[g], qx = d_iso_qx[g], qy = d_iso_qy[g], qz = d_iso_qz[g];
+        float v0 = buf[g*4], v1 = buf[g*4+1], v2 = buf[g*4+2], v3 = buf[g*4+3];
+        rotated[g*4]   = qw*v0 - qx*v1 - qy*v2 - qz*v3;
+        rotated[g*4+1] = qw*v1 + qx*v0 + qy*v3 - qz*v2;
+        rotated[g*4+2] = qw*v2 - qx*v3 + qy*v0 + qz*v1;
+        rotated[g*4+3] = qw*v3 + qx*v2 - qy*v1 + qz*v0;
+    }
+
+    for (int j = 0; j < QK_ISO3/4; j++) blk->qs[j] = 0;
+    for (int j = 0; j < QK_ISO3/8; j++) blk->signs[j] = 0;
+
+    float recon_sq = 0.0f;
+    for (int j = 0; j < QK_ISO3; j++) {
+        uint8_t idx = quantize_3bit(rotated[j]);
+        blk->qs[j/4] |= (idx & 0x3) << ((j%4)*2);
+        if (idx & 0x4) blk->signs[j/8] |= (1 << (j%8));
+        recon_sq += d_centroids_3bit[idx] * d_centroids_3bit[idx];
+    }
+
+    float recon_norm = sqrtf(recon_sq);
+    blk->norm = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+}
+
+// ── Iso4: F32 → block_iso4_0 (quaternion 4D + 4-bit nibble) ────────
+
+__global__ void kernel_cpy_f32_iso4(
+    const float * __restrict__ src,
+    block_iso4_0 * __restrict__ dst,
+    int64_t n_blocks)
+{
+    const int64_t ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    const float * s = src + ib * QK_ISO4;
+    block_iso4_0 * blk = &dst[ib];
+
+    float buf[128];
+    float norm_sq = 0.0f;
+    for (int j = 0; j < QK_ISO4; j++) {
+        buf[j] = s[j];
+        norm_sq += buf[j] * buf[j];
+    }
+    float grp_norm = sqrtf(norm_sq);
+    float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
+    for (int j = 0; j < QK_ISO4; j++) buf[j] *= inv_norm;
+
+    float rotated[128];
+    for (int g = 0; g < 32; g++) {
+        float qw = d_iso_qw[g], qx = d_iso_qx[g], qy = d_iso_qy[g], qz = d_iso_qz[g];
+        float v0 = buf[g*4], v1 = buf[g*4+1], v2 = buf[g*4+2], v3 = buf[g*4+3];
+        rotated[g*4]   = qw*v0 - qx*v1 - qy*v2 - qz*v3;
+        rotated[g*4+1] = qw*v1 + qx*v0 + qy*v3 - qz*v2;
+        rotated[g*4+2] = qw*v2 - qx*v3 + qy*v0 + qz*v1;
+        rotated[g*4+3] = qw*v3 + qx*v2 - qy*v1 + qz*v0;
+    }
+
+    for (int j = 0; j < 64; j++) blk->qs[j] = 0;
+    float recon_sq = 0.0f;
+    for (int j = 0; j < 128; j++) {
+        uint8_t idx = quantize_4bit(rotated[j]);
+        blk->qs[j/2] |= (idx & 0xF) << ((j%2)*4);
+        recon_sq += d_centroids_4bit[idx] * d_centroids_4bit[idx];
+    }
+
+    float recon_norm = sqrtf(recon_sq);
+    blk->norm = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->rnorm = __float2half(0.0f);
+}
+
 // ── Host dispatch functions (called from cpy.cu) ────────────────────
 
 static bool constants_initialized = false;
@@ -317,4 +499,199 @@ void ggml_cuda_cpy_f16_iso4(const char * src, char * dst, int64_t ne, cudaStream
     const int blocks = (n_blocks + threads - 1) / threads;
     kernel_cpy_f16_iso4<<<blocks, threads, 0, stream>>>(
         (const half *)src, (block_iso4_0 *)dst, n_blocks);
+}
+
+void ggml_cuda_cpy_f32_planar3(const char * src, char * dst, int64_t ne, cudaStream_t stream) {
+    ggml_cuda_init_planar_iso_constants();
+    const int64_t n_blocks = ne / QK_PLANAR3;
+    const int threads = 256;
+    const int blocks = (n_blocks + threads - 1) / threads;
+    kernel_cpy_f32_planar3<<<blocks, threads, 0, stream>>>(
+        (const float *)src, (block_planar3_0 *)dst, n_blocks);
+}
+
+void ggml_cuda_cpy_f32_planar4(const char * src, char * dst, int64_t ne, cudaStream_t stream) {
+    ggml_cuda_init_planar_iso_constants();
+    const int64_t n_blocks = ne / QK_PLANAR4;
+    const int threads = 256;
+    const int blocks = (n_blocks + threads - 1) / threads;
+    kernel_cpy_f32_planar4<<<blocks, threads, 0, stream>>>(
+        (const float *)src, (block_planar4_0 *)dst, n_blocks);
+}
+
+void ggml_cuda_cpy_f32_iso3(const char * src, char * dst, int64_t ne, cudaStream_t stream) {
+    ggml_cuda_init_planar_iso_constants();
+    const int64_t n_blocks = ne / QK_ISO3;
+    const int threads = 256;
+    const int blocks = (n_blocks + threads - 1) / threads;
+    kernel_cpy_f32_iso3<<<blocks, threads, 0, stream>>>(
+        (const float *)src, (block_iso3_0 *)dst, n_blocks);
+}
+
+void ggml_cuda_cpy_f32_iso4(const char * src, char * dst, int64_t ne, cudaStream_t stream) {
+    ggml_cuda_init_planar_iso_constants();
+    const int64_t n_blocks = ne / QK_ISO4;
+    const int threads = 256;
+    const int blocks = (n_blocks + threads - 1) / threads;
+    kernel_cpy_f32_iso4<<<blocks, threads, 0, stream>>>(
+        (const float *)src, (block_iso4_0 *)dst, n_blocks);
+}
+
+// ── Dequantize kernels (planar/iso → F16) for fattn-mma ─────────────
+
+__global__ void kernel_dequant_planar3_f16(
+    const block_planar3_0 * __restrict__ src,
+    half * __restrict__ dst,
+    int64_t n_blocks)
+{
+    const int64_t ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    const block_planar3_0 * blk = &src[ib];
+    float norm = __half2float(blk->norm);
+
+    for (int p = 0; p < 64; p++) {
+        int j0 = p*2, j1 = p*2+1;
+        uint8_t low0 = (blk->qs[j0/4] >> ((j0%4)*2)) & 0x3;
+        uint8_t hi0  = (blk->signs[j0/8] >> (j0%8)) & 0x1;
+        uint8_t low1 = (blk->qs[j1/4] >> ((j1%4)*2)) & 0x3;
+        uint8_t hi1  = (blk->signs[j1/8] >> (j1%8)) & 0x1;
+        float q0 = d_centroids_3bit[low0 | (hi0 << 2)];
+        float q1 = d_centroids_3bit[low1 | (hi1 << 2)];
+        float c = d_planar_cos[p], s = d_planar_sin[p];
+        float f0 = (c * q0 + s * q1) * norm;
+        float f1 = (-s * q0 + c * q1) * norm;
+        dst[ib * QK_PLANAR3 + j0] = __float2half(f0);
+        dst[ib * QK_PLANAR3 + j1] = __float2half(f1);
+    }
+}
+
+__global__ void kernel_dequant_planar4_f16(
+    const block_planar4_0 * __restrict__ src,
+    half * __restrict__ dst,
+    int64_t n_blocks)
+{
+    const int64_t ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    const block_planar4_0 * blk = &src[ib];
+    float norm = __half2float(blk->norm);
+
+    for (int p = 0; p < 64; p++) {
+        int j0 = p*2, j1 = p*2+1;
+        uint8_t i0 = (blk->qs[j0/2] >> ((j0%2)*4)) & 0xF;
+        uint8_t i1 = (blk->qs[j1/2] >> ((j1%2)*4)) & 0xF;
+        float q0 = d_centroids_4bit[i0];
+        float q1 = d_centroids_4bit[i1];
+        float c = d_planar_cos[p], s = d_planar_sin[p];
+        float f0 = (c * q0 + s * q1) * norm;
+        float f1 = (-s * q0 + c * q1) * norm;
+        dst[ib * QK_PLANAR4 + j0] = __float2half(f0);
+        dst[ib * QK_PLANAR4 + j1] = __float2half(f1);
+    }
+}
+
+__global__ void kernel_dequant_iso3_f16(
+    const block_iso3_0 * __restrict__ src,
+    half * __restrict__ dst,
+    int64_t n_blocks)
+{
+    const int64_t ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    const block_iso3_0 * blk = &src[ib];
+    float norm = __half2float(blk->norm);
+
+    for (int g = 0; g < 32; g++) {
+        float qvals[4];
+        for (int c = 0; c < 4; c++) {
+            int j = g*4 + c;
+            uint8_t low = (blk->qs[j/4] >> ((j%4)*2)) & 0x3;
+            uint8_t hi  = (blk->signs[j/8] >> (j%8)) & 0x1;
+            qvals[c] = d_centroids_3bit[low | (hi << 2)];
+        }
+        // Inverse rotation: conj(q) * v = (qw, -qx, -qy, -qz) * v
+        float qw = d_iso_qw[g], qx = -d_iso_qx[g], qy = -d_iso_qy[g], qz = -d_iso_qz[g];
+        float v0 = qvals[0], v1 = qvals[1], v2 = qvals[2], v3 = qvals[3];
+        float rw = qw*v0 - qx*v1 - qy*v2 - qz*v3;
+        float rx = qw*v1 + qx*v0 + qy*v3 - qz*v2;
+        float ry = qw*v2 - qx*v3 + qy*v0 + qz*v1;
+        float rz = qw*v3 + qx*v2 - qy*v1 + qz*v0;
+        dst[ib*QK_ISO3 + g*4+0] = __float2half(rw * norm);
+        dst[ib*QK_ISO3 + g*4+1] = __float2half(rx * norm);
+        dst[ib*QK_ISO3 + g*4+2] = __float2half(ry * norm);
+        dst[ib*QK_ISO3 + g*4+3] = __float2half(rz * norm);
+    }
+}
+
+__global__ void kernel_dequant_iso4_f16(
+    const block_iso4_0 * __restrict__ src,
+    half * __restrict__ dst,
+    int64_t n_blocks)
+{
+    const int64_t ib = blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks) return;
+
+    const block_iso4_0 * blk = &src[ib];
+    float norm = __half2float(blk->norm);
+
+    for (int g = 0; g < 32; g++) {
+        float qvals[4];
+        for (int c = 0; c < 4; c++) {
+            int j = g*4 + c;
+            uint8_t idx = (blk->qs[j/2] >> ((j%2)*4)) & 0xF;
+            qvals[c] = d_centroids_4bit[idx];
+        }
+        float qw = d_iso_qw[g], qx = -d_iso_qx[g], qy = -d_iso_qy[g], qz = -d_iso_qz[g];
+        float v0 = qvals[0], v1 = qvals[1], v2 = qvals[2], v3 = qvals[3];
+        float rw = qw*v0 - qx*v1 - qy*v2 - qz*v3;
+        float rx = qw*v1 + qx*v0 + qy*v3 - qz*v2;
+        float ry = qw*v2 - qx*v3 + qy*v0 + qz*v1;
+        float rz = qw*v3 + qx*v2 - qy*v1 + qz*v0;
+        dst[ib*QK_ISO4 + g*4+0] = __float2half(rw * norm);
+        dst[ib*QK_ISO4 + g*4+1] = __float2half(rx * norm);
+        dst[ib*QK_ISO4 + g*4+2] = __float2half(ry * norm);
+        dst[ib*QK_ISO4 + g*4+3] = __float2half(rz * norm);
+    }
+}
+
+// Host dispatch for dequantize → F16 (signature matches to_fp16_cuda_t)
+void dequantize_row_planar3_0_cuda(const void * __restrict__ x, half * __restrict__ y,
+                                   int64_t nrows, int64_t n_per_row, cudaStream_t stream) {
+    ggml_cuda_init_planar_iso_constants();
+    const int64_t n_blocks = (nrows * n_per_row) / QK_PLANAR3;
+    const int threads = 256;
+    const int blocks = (n_blocks + threads - 1) / threads;
+    kernel_dequant_planar3_f16<<<blocks, threads, 0, stream>>>(
+        (const block_planar3_0 *)x, y, n_blocks);
+}
+
+void dequantize_row_planar4_0_cuda(const void * __restrict__ x, half * __restrict__ y,
+                                   int64_t nrows, int64_t n_per_row, cudaStream_t stream) {
+    ggml_cuda_init_planar_iso_constants();
+    const int64_t n_blocks = (nrows * n_per_row) / QK_PLANAR4;
+    const int threads = 256;
+    const int blocks = (n_blocks + threads - 1) / threads;
+    kernel_dequant_planar4_f16<<<blocks, threads, 0, stream>>>(
+        (const block_planar4_0 *)x, y, n_blocks);
+}
+
+void dequantize_row_iso3_0_cuda(const void * __restrict__ x, half * __restrict__ y,
+                                int64_t nrows, int64_t n_per_row, cudaStream_t stream) {
+    ggml_cuda_init_planar_iso_constants();
+    const int64_t n_blocks = (nrows * n_per_row) / QK_ISO3;
+    const int threads = 256;
+    const int blocks = (n_blocks + threads - 1) / threads;
+    kernel_dequant_iso3_f16<<<blocks, threads, 0, stream>>>(
+        (const block_iso3_0 *)x, y, n_blocks);
+}
+
+void dequantize_row_iso4_0_cuda(const void * __restrict__ x, half * __restrict__ y,
+                                int64_t nrows, int64_t n_per_row, cudaStream_t stream) {
+    ggml_cuda_init_planar_iso_constants();
+    const int64_t n_blocks = (nrows * n_per_row) / QK_ISO4;
+    const int threads = 256;
+    const int blocks = (n_blocks + threads - 1) / threads;
+    kernel_dequant_iso4_f16<<<blocks, threads, 0, stream>>>(
+        (const block_iso4_0 *)x, y, n_blocks);
 }
