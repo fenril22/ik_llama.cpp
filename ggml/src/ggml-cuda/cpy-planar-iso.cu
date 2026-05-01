@@ -62,13 +62,13 @@ __global__ void kernel_cpy_f16_planar3(
     block_planar3_0 * blk = &dst[ib];
 
     float buf[128];
-    float norm_sq = 0.0f;
+    float grp_norm = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_PLANAR3; j++) {
         buf[j] = __half2float(s[j]);
-        norm_sq += buf[j] * buf[j];
+        float av = fabsf(buf[j]);
+        if (av > grp_norm) grp_norm = av;
     }
-    float grp_norm = sqrtf(norm_sq);
     float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_PLANAR3; j++) buf[j] *= inv_norm;
@@ -86,17 +86,14 @@ __global__ void kernel_cpy_f16_planar3(
     #pragma unroll
     for (int j = 0; j < QK_PLANAR3/8; j++) blk->signs[j] = 0;
 
-    float recon_sq = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_PLANAR3; j++) {
         uint8_t idx = quantize_3bit(rotated[j]);
         blk->qs[j/4] |= (idx & 0x3) << ((j%4)*2);
         if (idx & 0x4) blk->signs[j/8] |= (1 << (j%8));
-        recon_sq += PI_CENTROIDS_3BIT[idx] * PI_CENTROIDS_3BIT[idx];
     }
 
-    float recon_norm = sqrtf(recon_sq);
-    blk->norm = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->norm = __float2half(grp_norm);
 }
 
 // ── Encode: Planar4 F16 → block_planar4_0 ───────────────────────────
@@ -161,13 +158,13 @@ __global__ void kernel_cpy_f16_iso3(
     block_iso3_0 * blk = &dst[ib];
 
     float buf[128];
-    float norm_sq = 0.0f;
+    float grp_norm = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO3; j++) {
         buf[j] = __half2float(s[j]);
-        norm_sq += buf[j] * buf[j];
+        float av = fabsf(buf[j]);
+        if (av > grp_norm) grp_norm = av;
     }
-    float grp_norm = sqrtf(norm_sq);
     float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO3; j++) buf[j] *= inv_norm;
@@ -189,17 +186,14 @@ __global__ void kernel_cpy_f16_iso3(
     #pragma unroll
     for (int j = 0; j < QK_ISO3/8; j++) blk->signs[j] = 0;
 
-    float recon_sq = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO3; j++) {
         uint8_t idx = quantize_3bit(rotated[j]);
         blk->qs[j/4] |= (idx & 0x3) << ((j%4)*2);
         if (idx & 0x4) blk->signs[j/8] |= (1 << (j%8));
-        recon_sq += PI_CENTROIDS_3BIT[idx] * PI_CENTROIDS_3BIT[idx];
     }
 
-    float recon_norm = sqrtf(recon_sq);
-    blk->norm = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->norm = __float2half(grp_norm);
 }
 
 // ── Encode: Iso4 F16 → block_iso4_0 ─────────────────────────────────
@@ -216,13 +210,13 @@ __global__ void kernel_cpy_f16_iso4(
     block_iso4_0 * blk = &dst[ib];
 
     float buf[128];
-    float norm_sq = 0.0f;
+    float grp_norm = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO4; j++) {
         buf[j] = __half2float(s[j]);
-        norm_sq += buf[j] * buf[j];
+        float av = fabsf(buf[j]);
+        if (av > grp_norm) grp_norm = av;
     }
-    float grp_norm = sqrtf(norm_sq);
     float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO4; j++) buf[j] *= inv_norm;
@@ -240,16 +234,13 @@ __global__ void kernel_cpy_f16_iso4(
 
     #pragma unroll
     for (int j = 0; j < 64; j++) blk->qs[j] = 0;
-    float recon_sq = 0.0f;
     #pragma unroll
     for (int j = 0; j < 128; j++) {
         uint8_t idx = quantize_4bit(rotated[j]);
         blk->qs[j/2] |= (idx & 0xF) << ((j%2)*4);
-        recon_sq += PI_CENTROIDS_4BIT[idx] * PI_CENTROIDS_4BIT[idx];
     }
 
-    float recon_norm = sqrtf(recon_sq);
-    blk->norm  = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->norm  = __float2half(grp_norm);
     blk->rnorm = __float2half(0.0f);
 }
 
@@ -267,13 +258,13 @@ __global__ void kernel_cpy_f32_planar3(
     block_planar3_0 * blk = &dst[ib];
 
     float buf[128];
-    float norm_sq = 0.0f;
+    float grp_norm = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_PLANAR3; j++) {
         buf[j] = s[j];
-        norm_sq += buf[j] * buf[j];
+        float av = fabsf(buf[j]);
+        if (av > grp_norm) grp_norm = av;
     }
-    float grp_norm = sqrtf(norm_sq);
     float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_PLANAR3; j++) buf[j] *= inv_norm;
@@ -291,17 +282,14 @@ __global__ void kernel_cpy_f32_planar3(
     #pragma unroll
     for (int j = 0; j < QK_PLANAR3/8; j++) blk->signs[j] = 0;
 
-    float recon_sq = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_PLANAR3; j++) {
         uint8_t idx = quantize_3bit(rotated[j]);
         blk->qs[j/4] |= (idx & 0x3) << ((j%4)*2);
         if (idx & 0x4) blk->signs[j/8] |= (1 << (j%8));
-        recon_sq += PI_CENTROIDS_3BIT[idx] * PI_CENTROIDS_3BIT[idx];
     }
 
-    float recon_norm = sqrtf(recon_sq);
-    blk->norm = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->norm = __float2half(grp_norm);
 }
 
 // ── Encode: Planar4 F32 → block_planar4_0 ───────────────────────────
@@ -318,13 +306,13 @@ __global__ void kernel_cpy_f32_planar4(
     block_planar4_0 * blk = &dst[ib];
 
     float buf[128];
-    float norm_sq = 0.0f;
+    float grp_norm = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_PLANAR4; j++) {
         buf[j] = s[j];
-        norm_sq += buf[j] * buf[j];
+        float av = fabsf(buf[j]);
+        if (av > grp_norm) grp_norm = av;
     }
-    float grp_norm = sqrtf(norm_sq);
     float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_PLANAR4; j++) buf[j] *= inv_norm;
@@ -339,16 +327,13 @@ __global__ void kernel_cpy_f32_planar4(
 
     #pragma unroll
     for (int j = 0; j < 64; j++) blk->qs[j] = 0;
-    float recon_sq = 0.0f;
     #pragma unroll
     for (int j = 0; j < 128; j++) {
         uint8_t idx = quantize_4bit(rotated[j]);
         blk->qs[j/2] |= (idx & 0xF) << ((j%2)*4);
-        recon_sq += PI_CENTROIDS_4BIT[idx] * PI_CENTROIDS_4BIT[idx];
     }
 
-    float recon_norm = sqrtf(recon_sq);
-    blk->norm  = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->norm  = __float2half(grp_norm);
     blk->rnorm = __float2half(0.0f);
 }
 
@@ -366,13 +351,13 @@ __global__ void kernel_cpy_f32_iso3(
     block_iso3_0 * blk = &dst[ib];
 
     float buf[128];
-    float norm_sq = 0.0f;
+    float grp_norm = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO3; j++) {
         buf[j] = s[j];
-        norm_sq += buf[j] * buf[j];
+        float av = fabsf(buf[j]);
+        if (av > grp_norm) grp_norm = av;
     }
-    float grp_norm = sqrtf(norm_sq);
     float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO3; j++) buf[j] *= inv_norm;
@@ -393,17 +378,14 @@ __global__ void kernel_cpy_f32_iso3(
     #pragma unroll
     for (int j = 0; j < QK_ISO3/8; j++) blk->signs[j] = 0;
 
-    float recon_sq = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO3; j++) {
         uint8_t idx = quantize_3bit(rotated[j]);
         blk->qs[j/4] |= (idx & 0x3) << ((j%4)*2);
         if (idx & 0x4) blk->signs[j/8] |= (1 << (j%8));
-        recon_sq += PI_CENTROIDS_3BIT[idx] * PI_CENTROIDS_3BIT[idx];
     }
 
-    float recon_norm = sqrtf(recon_sq);
-    blk->norm = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->norm = __float2half(grp_norm);
 }
 
 // ── Encode: Iso4 F32 → block_iso4_0 ─────────────────────────────────
@@ -420,13 +402,13 @@ __global__ void kernel_cpy_f32_iso4(
     block_iso4_0 * blk = &dst[ib];
 
     float buf[128];
-    float norm_sq = 0.0f;
+    float grp_norm = 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO4; j++) {
         buf[j] = s[j];
-        norm_sq += buf[j] * buf[j];
+        float av = fabsf(buf[j]);
+        if (av > grp_norm) grp_norm = av;
     }
-    float grp_norm = sqrtf(norm_sq);
     float inv_norm = grp_norm > 1e-10f ? 1.0f / grp_norm : 0.0f;
     #pragma unroll
     for (int j = 0; j < QK_ISO4; j++) buf[j] *= inv_norm;
@@ -444,16 +426,13 @@ __global__ void kernel_cpy_f32_iso4(
 
     #pragma unroll
     for (int j = 0; j < 64; j++) blk->qs[j] = 0;
-    float recon_sq = 0.0f;
     #pragma unroll
     for (int j = 0; j < 128; j++) {
         uint8_t idx = quantize_4bit(rotated[j]);
         blk->qs[j/2] |= (idx & 0xF) << ((j%2)*4);
-        recon_sq += PI_CENTROIDS_4BIT[idx] * PI_CENTROIDS_4BIT[idx];
     }
 
-    float recon_norm = sqrtf(recon_sq);
-    blk->norm  = __float2half(recon_norm > 1e-10f ? grp_norm / recon_norm : grp_norm);
+    blk->norm  = __float2half(grp_norm);
     blk->rnorm = __float2half(0.0f);
 }
 

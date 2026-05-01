@@ -15,12 +15,13 @@
 
 #define ISO4_N_GROUPS 32
 
-/* Lloyd-Max optimal centroids for N(0, 1/sqrt(128)) */
+/* Lloyd-Max optimal centroids for absmax-normalized blocks.
+ * Distribution: N(0, 0.3) clipped to [-1,+1], 16 levels. */
 static const float ISO4_CENTROIDS[16] = {
-    -0.240803750f, -0.182222715f, -0.142468764f, -0.110596604f,
-    -0.082955822f, -0.057812915f, -0.034158020f, -0.011301852f,
-     0.011301852f,  0.034158020f,  0.057812915f,  0.082955822f,
-     0.110596604f,  0.142468764f,  0.182222715f,  0.240803750f,
+    -0.678649914f, -0.514937045f, -0.403020127f, -0.313029964f,
+    -0.234871876f, -0.163717400f, -0.096741518f, -0.032010552f,
+     0.032010552f,  0.096741518f,  0.163717400f,  0.234871876f,
+     0.313029964f,  0.403020127f,  0.514937045f,  0.678649914f,
 };
 
 static float i4_qw[32], i4_qx[32], i4_qy[32], i4_qz[32];
@@ -40,9 +41,9 @@ static void iso4_init(void) {
 }
 
 static const float ISO4_MIDPOINTS[15] = {
-    -0.211513233f, -0.162345739f, -0.126532684f, -0.096776213f, -0.070384368f, -0.045985467f, -0.022729936f,
+    -0.596793479f, -0.458978586f, -0.358025046f, -0.273950920f, -0.199294638f, -0.130229459f, -0.064376035f,
      0.000000000f,
-     0.022729936f,  0.045985467f,  0.070384368f,  0.096776213f,  0.126532684f,  0.162345739f,  0.211513233f
+     0.064376035f,  0.130229459f,  0.199294638f,  0.273950920f,  0.358025046f,  0.458978586f,  0.596793479f
 };
 
 static int nearest_16(float val) {
@@ -73,13 +74,14 @@ void quantize_row_iso4_0_ref(const float * GGML_RESTRICT x, block_iso4_0 * GGML_
         const float * src = x + b * 128;
         block_iso4_0 * blk = &y[b];
 
-        float norm_sq = 0;
-        for (int j = 0; j < 128; j++) norm_sq += src[j] * src[j];
-        float grp_norm = sqrtf(norm_sq);
+        float grp_norm = 0.0f;
+        for (int j = 0; j < 128; j++) {
+            float av = src[j] < 0 ? -src[j] : src[j];
+            if (av > grp_norm) grp_norm = av;
+        }
         float inv = (grp_norm > 1e-10f) ? 1.0f / grp_norm : 0.0f;
 
         memset(blk->qs, 0, 64);
-        float recon_sq = 0;
 
         for (int g = 0; g < 32; g++) {
             float v0 = src[g*4]*inv, v1 = src[g*4+1]*inv, v2 = src[g*4+2]*inv, v3 = src[g*4+3]*inv;
@@ -95,12 +97,10 @@ void quantize_row_iso4_0_ref(const float * GGML_RESTRICT x, block_iso4_0 * GGML_
                 int j = g*4 + c;
                 int idx = nearest_16(rot[c]);
                 blk->qs[j/2] |= (idx & 0xF) << ((j%2)*4);
-                recon_sq += ISO4_CENTROIDS[idx] * ISO4_CENTROIDS[idx];
             }
         }
 
-        float rn = sqrtf(recon_sq);
-        blk->norm = GGML_FP32_TO_FP16((rn > 1e-10f) ? grp_norm / rn : grp_norm);
+        blk->norm = GGML_FP32_TO_FP16(grp_norm);
         blk->rnorm = GGML_FP32_TO_FP16(0.0f);
     }
 }

@@ -3,29 +3,30 @@
 // static __constant__ so each CUDA compilation unit gets its own initialized copy.
 // No runtime init needed — constants are baked in at compile time.
 
-// 3-bit centroids: Lloyd-Max optimal for N(0, 1/sqrt(128)) — the distribution of
-// each component of an L2-normalized d=128 Gaussian vector.
+// 3-bit centroids: Lloyd-Max optimal for absmax-normalized blocks.
+// Distribution: N(0, 0.3) clipped to [-1, +1], matching absmax normalization of
+// 128-dim KV vectors (theoretical sigma ≈ 1/sqrt(2*log(128)) ≈ 0.321).
 static __constant__ float PI_CENTROIDS_3BIT[8] = {
-    -0.189797393f, -0.118473982f, -0.066629645f, -0.021598610f,
-     0.021598610f,  0.066629645f,  0.118473982f,  0.189797393f
+    -0.633480296f, -0.397661053f, -0.224092943f, -0.072697365f,
+     0.072697365f,  0.224092943f,  0.397661053f,  0.633480296f
 };
 // 3-bit midpoints for O(1) nearest-centroid lookup
 static __constant__ float PI_MID_3BIT[7] = {
-    -0.154135688f, -0.092551814f, -0.044114128f, 0.0f, 0.044114128f, 0.092551814f, 0.154135688f
+    -0.515570675f, -0.310876998f, -0.148395154f, 0.0f, 0.148395154f, 0.310876998f, 0.515570675f
 };
-// 4-bit centroids: Lloyd-Max optimal for N(0, 1/sqrt(128)).
-// NOTE: These are NOT the same as turbo4 centroids (which target a different distribution).
+// 4-bit centroids: Lloyd-Max optimal for absmax-normalized blocks.
+// Distribution: N(0, 0.3) clipped to [-1,+1], 16 levels.
 static __constant__ float PI_CENTROIDS_4BIT[16] = {
-    -0.240803750f, -0.182222715f, -0.142468764f, -0.110596604f,
-    -0.082955822f, -0.057812915f, -0.034158020f, -0.011301852f,
-     0.011301852f,  0.034158020f,  0.057812915f,  0.082955822f,
-     0.110596604f,  0.142468764f,  0.182222715f,  0.240803750f
+    -0.678649914f, -0.514937045f, -0.403020127f, -0.313029964f,
+    -0.234871876f, -0.163717400f, -0.096741518f, -0.032010552f,
+     0.032010552f,  0.096741518f,  0.163717400f,  0.234871876f,
+     0.313029964f,  0.403020127f,  0.514937045f,  0.678649914f
 };
 // 4-bit midpoints for O(1) nearest-centroid lookup
 static __constant__ float PI_MID_4BIT[15] = {
-    -0.211513233f, -0.162345739f, -0.126532684f, -0.096776213f, -0.070384368f, -0.045985467f, -0.022729936f,
+    -0.596793479f, -0.458978586f, -0.358025046f, -0.273950920f, -0.199294638f, -0.130229459f, -0.064376035f,
      0.000000000f,
-     0.022729936f,  0.045985467f,  0.070384368f,  0.096776213f,  0.126532684f,  0.162345739f,  0.211513233f
+     0.064376035f,  0.130229459f,  0.199294638f,  0.273950920f,  0.358025046f,  0.458978586f,  0.596793479f
 };
 
 // Givens rotation: cos/sin for 64 pairs (seed=42, LCG PRNG)

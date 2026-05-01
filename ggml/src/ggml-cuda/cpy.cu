@@ -3,6 +3,7 @@
 #include "graph.cuh"
 #include "cpy-utils.cuh"
 #include "cpy-planar-iso.cuh"
+#include "cpy-turbo.cuh"
 #if defined(GGML_USE_MUSA) && defined(GGML_MUSA_MUDNN_COPY)
 #include "ggml-musa/mudnn.cuh"
 #endif // GGML_USE_MUSA && GGML_MUSA_MUDNN_COPY
@@ -663,6 +664,18 @@ void ggml_cuda_cpy(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, gg
         ggml_cuda_cpy_f32_iso3(src0_ddc, src1_ddc, ne, main_stream);
     } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_ISO4_0) {
         ggml_cuda_cpy_f32_iso4(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_TURBO3_0) {
+        ggml_cuda_cpy_f16_turbo3(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_TURBO4_0) {
+        ggml_cuda_cpy_f16_turbo4(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_TURBO2_0) {
+        ggml_cuda_cpy_f16_turbo2(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_TURBO3_0) {
+        ggml_cuda_cpy_f32_turbo3(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_TURBO4_0) {
+        ggml_cuda_cpy_f32_turbo4(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_TURBO2_0) {
+        ggml_cuda_cpy_f32_turbo2(src0_ddc, src1_ddc, ne, main_stream);
     } else {
         GGML_ABORT("%s: unsupported type combination (%s to %s)\n", __func__,
                 ggml_type_name(src0->type), ggml_type_name(src1->type));
@@ -761,8 +774,10 @@ void* ggml_cuda_cpy_fn(const ggml_tensor * src0, ggml_tensor * src1) {
         return (void *)transpose_q8_0;
     } else if ((src0->type == GGML_TYPE_F16 || src0->type == GGML_TYPE_F32) &&
                (src1->type == GGML_TYPE_PLANAR3_0 || src1->type == GGML_TYPE_ISO3_0 ||
-                src1->type == GGML_TYPE_PLANAR4_0 || src1->type == GGML_TYPE_ISO4_0)) {
-        // planar/iso quantization kernels use stream-based dispatch (not CUDA graph compatible)
+                src1->type == GGML_TYPE_PLANAR4_0 || src1->type == GGML_TYPE_ISO4_0 ||
+                src1->type == GGML_TYPE_TURBO3_0  || src1->type == GGML_TYPE_TURBO4_0 ||
+                src1->type == GGML_TYPE_TURBO2_0)) {
+        // planar/iso/turbo quantization kernels use stream-based dispatch (not CUDA graph compatible)
         return nullptr;
     } else {
         GGML_ABORT("%s: unsupported type combination (%s to %s)\n", __func__,

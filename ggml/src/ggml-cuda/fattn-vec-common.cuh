@@ -699,6 +699,104 @@ static __device__ __forceinline__ T dequantize_1_iso4_0(const void * __restrict_
     return (T)(results[offset] * norm);
 }
 
+// ── TurboQuant 3-bit KQ dot product ──
+// WHT already applied to K before quantization, so just centroid lookup + norm.
+#include "turbo-quant.cuh"
+
+template <typename T, int Dk>
+static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo3_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_turbo3_0 * K = (const block_turbo3_0 *) K_c;
+    GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
+
+    const float2 * Q_f2 = (const float2 *) Q_v;
+    float sum = 0.0f;
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < Dk/2; k_KQ_0 += WARP_SIZE) {
+        const int k_KQ = k_KQ_0 + threadIdx.x;
+        const int elem0 = k_KQ * 2;
+        const int ib = elem0 / QK_TURBO3;
+        const float norm = __half2float(K[ib].norm);
+        sum += turbo3_dequant_element(&K[ib], elem0 % QK_TURBO3,     norm) * Q_f2[k_KQ_0/WARP_SIZE].x;
+        sum += turbo3_dequant_element(&K[ib], elem0 % QK_TURBO3 + 1, norm) * Q_f2[k_KQ_0/WARP_SIZE].y;
+    }
+
+    return (T)sum;
+}
+
+template <typename T, int Dk>
+static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo4_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_turbo4_0 * K = (const block_turbo4_0 *) K_c;
+    GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
+
+    const float2 * Q_f2 = (const float2 *) Q_v;
+    float sum = 0.0f;
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < Dk/2; k_KQ_0 += WARP_SIZE) {
+        const int k_KQ = k_KQ_0 + threadIdx.x;
+        const int elem0 = k_KQ * 2;
+        const int ib = elem0 / QK_TURBO4;
+        const float norm = __half2float(K[ib].norm);
+        sum += turbo4_dequant_element(&K[ib], elem0 % QK_TURBO4,     norm) * Q_f2[k_KQ_0/WARP_SIZE].x;
+        sum += turbo4_dequant_element(&K[ib], elem0 % QK_TURBO4 + 1, norm) * Q_f2[k_KQ_0/WARP_SIZE].y;
+    }
+
+    return (T)sum;
+}
+
+template <typename T, int Dk>
+static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo2_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_turbo2_0 * K = (const block_turbo2_0 *) K_c;
+    GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
+
+    const float2 * Q_f2 = (const float2 *) Q_v;
+    float sum = 0.0f;
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < Dk/2; k_KQ_0 += WARP_SIZE) {
+        const int k_KQ = k_KQ_0 + threadIdx.x;
+        const int elem0 = k_KQ * 2;
+        const int ib = elem0 / QK_TURBO2;
+        const float norm = __half2float(K[ib].norm);
+        sum += turbo2_dequant_element(&K[ib], elem0 % QK_TURBO2,     norm) * Q_f2[k_KQ_0/WARP_SIZE].x;
+        sum += turbo2_dequant_element(&K[ib], elem0 % QK_TURBO2 + 1, norm) * Q_f2[k_KQ_0/WARP_SIZE].y;
+    }
+
+    return (T)sum;
+}
+
+// ── TurboQuant V dequantize (per-element) — WHT already baked in ──
+template <typename T>
+static __device__ __forceinline__ T dequantize_1_turbo3_0(const void * __restrict__ vx, const int64_t i) {
+    const block_turbo3_0 * x = (const block_turbo3_0 *) vx;
+    const int64_t ib = i / QK_TURBO3;
+    const float norm = __half2float(x[ib].norm);
+    return (T)turbo3_dequant_element(&x[ib], (int)(i % QK_TURBO3), norm);
+}
+
+template <typename T>
+static __device__ __forceinline__ T dequantize_1_turbo4_0(const void * __restrict__ vx, const int64_t i) {
+    const block_turbo4_0 * x = (const block_turbo4_0 *) vx;
+    const int64_t ib = i / QK_TURBO4;
+    const float norm = __half2float(x[ib].norm);
+    return (T)turbo4_dequant_element(&x[ib], (int)(i % QK_TURBO4), norm);
+}
+
+template <typename T>
+static __device__ __forceinline__ T dequantize_1_turbo2_0(const void * __restrict__ vx, const int64_t i) {
+    const block_turbo2_0 * x = (const block_turbo2_0 *) vx;
+    const int64_t ib = i / QK_TURBO2;
+    const float norm = __half2float(x[ib].norm);
+    return (T)turbo2_dequant_element(&x[ib], (int)(i % QK_TURBO2), norm);
+}
+
 template <typename Tds>
 static __device__ __forceinline__ void quantize_q8_1_to_shared(
     const float * __restrict__ x, const float scale, int * __restrict__ yq32, void * __restrict__ yds) {
@@ -921,6 +1019,9 @@ constexpr __device__ vec_dot_KQ_f16_t get_vec_dot_KQ_f16(ggml_type type_K) {
            type_K == GGML_TYPE_ISO3_0    ? vec_dot_fattn_vec_KQ_iso3_0<half, Dk>    :
            type_K == GGML_TYPE_PLANAR4_0 ? vec_dot_fattn_vec_KQ_planar4_0<half, Dk> :
            type_K == GGML_TYPE_ISO4_0    ? vec_dot_fattn_vec_KQ_iso4_0<half, Dk>    :
+           type_K == GGML_TYPE_TURBO3_0  ? vec_dot_fattn_vec_KQ_turbo3_0<half, Dk>  :
+           type_K == GGML_TYPE_TURBO4_0  ? vec_dot_fattn_vec_KQ_turbo4_0<half, Dk>  :
+           type_K == GGML_TYPE_TURBO2_0  ? vec_dot_fattn_vec_KQ_turbo2_0<half, Dk>  :
            nullptr;
 }
 
@@ -938,6 +1039,9 @@ constexpr __device__ vec_dot_KQ_f32_t get_vec_dot_KQ_f32(ggml_type type_K) {
            type_K == GGML_TYPE_ISO3_0    ? vec_dot_fattn_vec_KQ_iso3_0<float, Dk>    :
            type_K == GGML_TYPE_PLANAR4_0 ? vec_dot_fattn_vec_KQ_planar4_0<float, Dk> :
            type_K == GGML_TYPE_ISO4_0    ? vec_dot_fattn_vec_KQ_iso4_0<float, Dk>    :
+           type_K == GGML_TYPE_TURBO3_0  ? vec_dot_fattn_vec_KQ_turbo3_0<float, Dk>  :
+           type_K == GGML_TYPE_TURBO4_0  ? vec_dot_fattn_vec_KQ_turbo4_0<float, Dk>  :
+           type_K == GGML_TYPE_TURBO2_0  ? vec_dot_fattn_vec_KQ_turbo2_0<float, Dk>  :
            nullptr;
 }
 
@@ -954,6 +1058,9 @@ constexpr __device__ dequantize_1_f16_t get_dequantize_1_f16(ggml_type type_V) {
            type_V == GGML_TYPE_ISO3_0    ? dequantize_1_iso3_0<half>    :
            type_V == GGML_TYPE_PLANAR4_0 ? dequantize_1_planar4_0<half> :
            type_V == GGML_TYPE_ISO4_0    ? dequantize_1_iso4_0<half>    :
+           type_V == GGML_TYPE_TURBO3_0  ? dequantize_1_turbo3_0<half>  :
+           type_V == GGML_TYPE_TURBO4_0  ? dequantize_1_turbo4_0<half>  :
+           type_V == GGML_TYPE_TURBO2_0  ? dequantize_1_turbo2_0<half>  :
            nullptr;
 }
 
@@ -970,6 +1077,9 @@ constexpr __device__ dequantize_1_f32_t get_dequantize_1_f32(ggml_type type_V) {
            type_V == GGML_TYPE_ISO3_0    ? dequantize_1_iso3_0<float>    :
            type_V == GGML_TYPE_PLANAR4_0 ? dequantize_1_planar4_0<float> :
            type_V == GGML_TYPE_ISO4_0    ? dequantize_1_iso4_0<float>    :
+           type_V == GGML_TYPE_TURBO3_0  ? dequantize_1_turbo3_0<float>  :
+           type_V == GGML_TYPE_TURBO4_0  ? dequantize_1_turbo4_0<float>  :
+           type_V == GGML_TYPE_TURBO2_0  ? dequantize_1_turbo2_0<float>  :
            nullptr;
 }
 

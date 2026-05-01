@@ -1621,6 +1621,9 @@ static ggml_tensor * llm_build_kqv(
         if (cparams.v_cache_hadamard) {
             cur = ggml_hadamard(ctx, cur, n_embd_head_v);
             cb(cur, "fa_h", il);
+        } else if (v_cache->type == GGML_TYPE_TURBO3_0 || v_cache->type == GGML_TYPE_TURBO4_0 || v_cache->type == GGML_TYPE_TURBO2_0) {
+            cur = ggml_turbo_wht(ctx, cur, 1, 0, nullptr); // inverse WHT
+            cb(cur, "fa_turbo_iwht", il);
         }
         cur = ggml_reshape_2d(ctx, cur, n_embd_head_v*n_head, n_tokens);
     } else {
@@ -1779,6 +1782,12 @@ ggml_tensor * llm_build_context::llm_build_kv(
     const llama_hparams & hparams = lctx.model.hparams;
     const llama_cparams & cparams = lctx.cparams;
 
+    // Check if TurboQuant WHT is needed for K or V cache
+    const ggml_type kv_type_k = (kv.k_l[il] != nullptr) ? kv.k_l[il]->type : GGML_TYPE_F16;
+    const ggml_type kv_type_v = (kv.v_l[il] != nullptr) ? kv.v_l[il]->type : GGML_TYPE_F16;
+    const bool turbo_k = (kv_type_k == GGML_TYPE_TURBO3_0 || kv_type_k == GGML_TYPE_TURBO4_0 || kv_type_k == GGML_TYPE_TURBO2_0);
+    const bool turbo_v = (kv_type_v == GGML_TYPE_TURBO3_0 || kv_type_v == GGML_TYPE_TURBO4_0 || kv_type_v == GGML_TYPE_TURBO2_0);
+
     if (cparams.k_cache_hadamard) {
         q_cur = ggml_hadamard(ctx, q_cur, hparams.n_embd_head_k(il));
         if (k_cur) {
@@ -1786,9 +1795,19 @@ ggml_tensor * llm_build_context::llm_build_kv(
             cb(k_cur, "Kcur_hadamard", il);
         }
         cb(q_cur, "Qcur_hadamard", il);
+    } else if (turbo_k) {
+        // TurboQuant: apply WHT (forward, direction=0) to Q and K before KV store
+        q_cur = ggml_turbo_wht(ctx, q_cur, 0, 0, nullptr);
+        if (k_cur) {
+            k_cur = ggml_turbo_wht(ctx, k_cur, 0, 0, nullptr);
+            cb(k_cur, "Kcur_turbo_wht", il);
+        }
+        cb(q_cur, "Qcur_turbo_wht", il);
     }
     if (cparams.v_cache_hadamard && v_cur) {
         v_cur = ggml_hadamard(ctx, v_cur, hparams.n_embd_head_v(il));
+    } else if (turbo_v && v_cur) {
+        v_cur = ggml_turbo_wht(ctx, v_cur, 0, 0, nullptr);
     }
 
     // these nodes are added to the graph together so that they are not reordered
@@ -2614,10 +2633,18 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                     Kcur = ggml_hadamard(ctx0, Kcur, hparams.n_embd_head_k(il));
                     cb(Qcur, "Qcur_hadamard", il_cb);
                     cb(Kcur, "Kcur_hadamard", il_cb);
+                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                    Qcur = ggml_turbo_wht(ctx0, Qcur, 0, 0, nullptr);
+                    Kcur = ggml_turbo_wht(ctx0, Kcur, 0, 0, nullptr);
+                    cb(Qcur, "Qcur_turbo_wht", il_cb);
+                    cb(Kcur, "Kcur_turbo_wht", il_cb);
                 }
                 if (cparams.v_cache_hadamard) {
                     Vcur = ggml_hadamard(ctx0, Vcur, hparams.n_embd_head_v(il));
                     cb(Vcur, "Vcur_hadamard", il_cb);
+                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                    Vcur = ggml_turbo_wht(ctx0, Vcur, 0, 0, nullptr);
+                    cb(Vcur, "Vcur_turbo_wht", il_cb);
                 }
                 ggml_build_forward_expand(gf, Qcur);
                 ggml_build_forward_expand(gf, Kcur);
@@ -2695,6 +2722,9 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                 if (cparams.v_cache_hadamard) {
                     cur = ggml_hadamard(ctx0, cur, n_embd_head_v);
                     cb(cur, "flash_attn_h", il_cb);
+                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                    cur = ggml_turbo_wht(ctx0, cur, 1, 0, nullptr); // inverse WHT
+                    cb(cur, "flash_attn_turbo_iwht", il_cb);
                 }
 
                 if (model.layers[il].wqkv_gate) {

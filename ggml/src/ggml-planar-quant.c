@@ -20,10 +20,11 @@
 
 #define PLANAR_D 128
 
-/* Lloyd-Max optimal centroids for N(0, 1/sqrt(128)) */
+/* Lloyd-Max optimal centroids for absmax-normalized blocks.
+ * Distribution: N(0, 0.3) clipped to [-1,+1], matching absmax normalization. */
 static const float PLANAR_CENTROIDS_3BIT[8] = {
-    -0.189797393f, -0.118473982f, -0.066629645f, -0.021598610f,
-     0.021598610f,  0.066629645f,  0.118473982f,  0.189797393f,
+    -0.633480296f, -0.397661053f, -0.224092943f, -0.072697365f,
+     0.072697365f,  0.224092943f,  0.397661053f,  0.633480296f,
 };
 
 /* Rotation parameters: cos/sin per pair (lazy init) */
@@ -43,7 +44,7 @@ static void planar_init_rotation(void) {
 }
 
 static const float PLANAR_MIDPOINTS_3BIT[7] = {
-    -0.154135688f, -0.092551814f, -0.044114128f, 0.000000f, 0.044114128f, 0.092551814f, 0.154135688f
+    -0.515570675f, -0.310876998f, -0.148395154f, 0.000000f, 0.148395154f, 0.310876998f, 0.515570675f
 };
 
 static int nearest_centroid_planar3(float val) {
@@ -68,17 +69,18 @@ void quantize_row_planar3_0_ref(const float * GGML_RESTRICT x, block_planar3_0 *
         const float * src = x + block * QK_PLANAR3;
         block_planar3_0 * blk = &y[block];
 
-        /* 1. L2 norm */
-        float norm_sq = 0.0f;
-        for (int j = 0; j < QK_PLANAR3; j++) norm_sq += src[j] * src[j];
-        float grp_norm = sqrtf(norm_sq);
+        /* 1. absmax norm */
+        float grp_norm = 0.0f;
+        for (int j = 0; j < QK_PLANAR3; j++) {
+            float av = src[j] < 0 ? -src[j] : src[j];
+            if (av > grp_norm) grp_norm = av;
+        }
         float inv_norm = (grp_norm > 1e-10f) ? 1.0f / grp_norm : 0.0f;
 
         /* 2. Normalize + rotate + quantize */
         memset(blk->qs, 0, QK_PLANAR3 / 4);
         memset(blk->signs, 0, QK_PLANAR3 / 8);
 
-        float recon_sq = 0.0f;
         for (int p = 0; p < n_pairs; p++) {
             float v0 = src[p * 2] * inv_norm;
             float v1 = src[p * 2 + 1] * inv_norm;
@@ -96,21 +98,16 @@ void quantize_row_planar3_0_ref(const float * GGML_RESTRICT x, block_planar3_0 *
             int j0 = p * 2;
             int j1 = p * 2 + 1;
 
-            /* Pack 2-bit lower + 1-bit sign (same as turbo3) */
+            /* Pack 2-bit lower + 1-bit sign */
             blk->qs[j0 / 4] |= (idx0 & 0x3) << ((j0 % 4) * 2);
             if (idx0 & 0x4) blk->signs[j0 / 8] |= (1 << (j0 % 8));
 
             blk->qs[j1 / 4] |= (idx1 & 0x3) << ((j1 % 4) * 2);
             if (idx1 & 0x4) blk->signs[j1 / 8] |= (1 << (j1 % 8));
-
-            recon_sq += PLANAR_CENTROIDS_3BIT[idx0] * PLANAR_CENTROIDS_3BIT[idx0];
-            recon_sq += PLANAR_CENTROIDS_3BIT[idx1] * PLANAR_CENTROIDS_3BIT[idx1];
         }
 
-        /* 3. Corrected norm */
-        float recon_norm = sqrtf(recon_sq);
-        float corrected = (recon_norm > 1e-10f) ? grp_norm / recon_norm : grp_norm;
-        blk->norm = GGML_FP32_TO_FP16(corrected);
+        /* 3. Store absmax as norm (no recon correction needed with absmax) */
+        blk->norm = GGML_FP32_TO_FP16(grp_norm);
     }
 }
 

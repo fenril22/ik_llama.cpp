@@ -56,6 +56,7 @@
 #include "ggml-cuda/reduce.cuh"
 #include "ggml-cuda/tri.cuh"
 #include "ggml-cuda/delta-net.cuh"
+#include "ggml-cuda/turbo-wht.cuh"
 
 #include <algorithm>
 #include <array>
@@ -3689,6 +3690,9 @@ static bool ggml_cuda_compute_forward(ggml_backend_cuda_context & ctx, struct gg
         case GGML_OP_FUSED_NORM:
             ggml_cuda_op_fused_rms_norm(ctx, dst, true);
             break;
+        case GGML_OP_TURBO_WHT:
+            ggml_cuda_turbo_wht(ctx, dst);
+            break;
         case GGML_OP_MUL_MAT:
             if (dst->src[0]->ne[3] != dst->src[1]->ne[3]) {
                 GGML_CUDA_LOG_ERROR("%s: cannot compute %s: src0->ne[3] = %" PRId64 ", src1->ne[3] = %" PRId64 " - fallback to CPU\n", __func__, dst->name, dst->src[0]->ne[3], dst->src[1]->ne[3]);
@@ -4716,6 +4720,9 @@ GGML_CALL static bool ggml_backend_cuda_supports_op(ggml_backend_t backend, cons
             return true;
         case GGML_OP_FUSED_NORM:
             return ggml_is_contiguous(op->src[0]);
+        case GGML_OP_TURBO_WHT:
+            return op->type == GGML_TYPE_F32 && op->src[0]->type == GGML_TYPE_F32
+                && ggml_is_contiguous(op->src[0]);
         //case GGML_OP_ROPE:
         //    return ggml_is_contiguous(op->src[0]);
         case GGML_OP_IM2COL:

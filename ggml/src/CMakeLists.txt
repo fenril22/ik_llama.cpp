@@ -381,6 +381,12 @@ if (GGML_CUDA)
             list(APPEND GGML_SOURCES_CUDA ${SRCS})
             file(GLOB   SRCS "ggml-cuda/template-instances/fattn-vec*iso4_0-iso4_0.cu")
             list(APPEND GGML_SOURCES_CUDA ${SRCS})
+            file(GLOB   SRCS "ggml-cuda/template-instances/fattn-vec*turbo3_0*.cu")
+            list(APPEND GGML_SOURCES_CUDA ${SRCS})
+            file(GLOB   SRCS "ggml-cuda/template-instances/fattn-vec*turbo4_0*.cu")
+            list(APPEND GGML_SOURCES_CUDA ${SRCS})
+            file(GLOB   SRCS "ggml-cuda/template-instances/fattn-vec*turbo2_0*.cu")
+            list(APPEND GGML_SOURCES_CUDA ${SRCS})
         endif()
 
         list(APPEND GGML_CDEF_PUBLIC GGML_USE_CUDA)
@@ -1538,6 +1544,7 @@ add_library(ggml
             ggml-iso-quant.c
             ggml-planar4-quant.c
             ggml-iso4-quant.c
+            ggml-turbo-quant.c
             ${GGML_SOURCES_CUDA}      ${GGML_HEADERS_CUDA}
             ${GGML_SOURCES_METAL}     ${GGML_HEADERS_METAL}
             ${GGML_SOURCES_RPC}       ${GGML_HEADERS_RPC}

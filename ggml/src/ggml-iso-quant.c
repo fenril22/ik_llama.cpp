@@ -20,10 +20,11 @@
 
 #define ISO_N_GROUPS 32  /* 128 / 4 */
 
-/* Lloyd-Max optimal centroids for N(0, 1/sqrt(128)) */
+/* Lloyd-Max optimal centroids for absmax-normalized blocks.
+ * Distribution: N(0, 0.3) clipped to [-1,+1], matching absmax normalization. */
 static const float ISO_CENTROIDS_3BIT[8] = {
-    -0.189797393f, -0.118473982f, -0.066629645f, -0.021598610f,
-     0.021598610f,  0.066629645f,  0.118473982f,  0.189797393f,
+    -0.633480296f, -0.397661053f, -0.224092943f, -0.072697365f,
+     0.072697365f,  0.224092943f,  0.397661053f,  0.633480296f,
 };
 
 /* Unit quaternions (one per 4D group, lazy init) */
@@ -58,7 +59,7 @@ static void quat_mul(float aw, float ax, float ay, float az,
 }
 
 static const float ISO_MIDPOINTS_3BIT[7] = {
-    -0.154135688f, -0.092551814f, -0.044114128f, 0.000000f, 0.044114128f, 0.092551814f, 0.154135688f
+    -0.515570675f, -0.310876998f, -0.148395154f, 0.000000f, 0.148395154f, 0.310876998f, 0.515570675f
 };
 
 static int nearest_centroid_iso3(float val) {
@@ -82,20 +83,19 @@ void quantize_row_iso3_0_ref(const float * GGML_RESTRICT x, block_iso3_0 * GGML_
         const float * src = x + block * QK_ISO3;
         block_iso3_0 * blk = &y[block];
 
-        /* 1. L2 norm */
-        float norm_sq = 0.0f;
-        for (int j = 0; j < QK_ISO3; j++) norm_sq += src[j] * src[j];
-        float grp_norm = sqrtf(norm_sq);
+        /* 1. absmax norm */
+        float grp_norm = 0.0f;
+        for (int j = 0; j < QK_ISO3; j++) {
+            float av = src[j] < 0 ? -src[j] : src[j];
+            if (av > grp_norm) grp_norm = av;
+        }
         float inv_norm = (grp_norm > 1e-10f) ? 1.0f / grp_norm : 0.0f;
 
         /* 2. Normalize + rotate + quantize */
         memset(blk->qs, 0, QK_ISO3 / 4);
         memset(blk->signs, 0, QK_ISO3 / 8);
 
-        float recon_sq = 0.0f;
         for (int g = 0; g < ISO_N_GROUPS; g++) {
-            /* Load 4D block as quaternion (w=0, x=v0, y=v1, z=v2... wait,
-             * we treat 4 elements as a quaternion: (v0, v1, v2, v3) */
             float v0 = src[g*4 + 0] * inv_norm;
             float v1 = src[g*4 + 1] * inv_norm;
             float v2 = src[g*4 + 2] * inv_norm;
@@ -113,14 +113,11 @@ void quantize_row_iso3_0_ref(const float * GGML_RESTRICT x, block_iso3_0 * GGML_
                 int idx = nearest_centroid_iso3(rotated[c]);
                 blk->qs[j / 4] |= (idx & 0x3) << ((j % 4) * 2);
                 if (idx & 0x4) blk->signs[j / 8] |= (1 << (j % 8));
-                recon_sq += ISO_CENTROIDS_3BIT[idx] * ISO_CENTROIDS_3BIT[idx];
             }
         }
 
-        /* 3. Corrected norm */
-        float recon_norm = sqrtf(recon_sq);
-        float corrected = (recon_norm > 1e-10f) ? grp_norm / recon_norm : grp_norm;
-        blk->norm = GGML_FP32_TO_FP16(corrected);
+        /* 3. Store absmax as norm */
+        blk->norm = GGML_FP32_TO_FP16(grp_norm);
     }
 }
 
