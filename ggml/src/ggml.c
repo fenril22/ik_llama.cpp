@@ -1440,6 +1440,30 @@ static const ggml_type_traits_t type_traits[GGML_TYPE_COUNT] = {
         .from_float               = quantize_row_q8_K128,
         .row_meta_size            = 0,
     },
+    [GGML_TYPE_PLANAR3_0] = {
+        .type_name                = "planar3",
+        .blck_size                = QK_PLANAR3,
+        .type_size                = sizeof(block_planar3_0),
+        .is_quantized             = true,
+    },
+    [GGML_TYPE_ISO3_0] = {
+        .type_name                = "iso3",
+        .blck_size                = QK_ISO3,
+        .type_size                = sizeof(block_iso3_0),
+        .is_quantized             = true,
+    },
+    [GGML_TYPE_PLANAR4_0] = {
+        .type_name                = "planar4",
+        .blck_size                = QK_PLANAR4,
+        .type_size                = sizeof(block_planar4_0),
+        .is_quantized             = true,
+    },
+    [GGML_TYPE_ISO4_0] = {
+        .type_name                = "iso4",
+        .blck_size                = QK_ISO4,
+        .type_size                = sizeof(block_iso4_0),
+        .is_quantized             = true,
+    },
     [GGML_TYPE_Q8_KV] = {
         .type_name                = "q8_KV",
         .blck_size                = 32,

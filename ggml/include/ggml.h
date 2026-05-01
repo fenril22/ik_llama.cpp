@@ -423,8 +423,10 @@ extern "C" {
         GGML_TYPE_I2_S      = 36,  // So we are able to consume MS BitNet I2_S quants
         GGML_TYPE_MXFP4     = 39,  // so we are compatible with mainline
         GGML_TYPE_Q1_0_G128 = 41,  // Bonsai 1-bit quants
-        //
-        //
+        GGML_TYPE_PLANAR3_0 = 42,  // PlanarQuant 3-bit KV cache: 2D Givens rotation + 2-bit scalar + 1-bit QJL
+        GGML_TYPE_ISO3_0    = 43,  // IsoQuant 3-bit KV cache: quaternion 4D rotation + 2-bit scalar + 1-bit QJL
+        GGML_TYPE_PLANAR4_0 = 44,  // PlanarQuant 4-bit KV cache: 2D Givens rotation + 3-bit scalar + 1-bit QJL
+        GGML_TYPE_ISO4_0    = 45,  // IsoQuant 4-bit KV cache: quaternion 4D rotation + 3-bit scalar + 1-bit QJL
         GGML_TYPE_Q8_0_X4 = 97,
         GGML_TYPE_Q8_1_X4 = 98,
         GGML_TYPE_Q8_2_X4 = 99,

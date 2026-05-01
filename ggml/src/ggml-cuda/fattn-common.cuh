@@ -405,6 +405,230 @@ static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_f16(
     return sum;
 }
 
+// ── PlanarQuant/IsoQuant constants for fattn dequantization ──
+#include "planar-iso-constants.cuh"
+
+// ── PlanarQuant3 KQ dot product ──
+template <typename T, int Dk>
+static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_planar3_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_planar3_0 * K = (const block_planar3_0 *) K_c;
+    GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
+    const float2 * Q_f2 = (const float2 *) Q_v;
+    float sum = 0.0f;
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < Dk/2; k_KQ_0 += WARP_SIZE) {
+        const int k_KQ = k_KQ_0 + threadIdx.x;
+        const int elem0 = k_KQ * 2;
+        const int ib = elem0 / QK_PLANAR3;
+        const int j0 = elem0 % QK_PLANAR3;
+
+        const float norm = __half2float(K[ib].norm);
+        const uint8_t qs_byte = K[ib].qs[j0/4];
+        const uint8_t sgn_byte = K[ib].signs[j0/8];
+        const int shift = (j0%4)*2;
+        const uint8_t idx0 = ((qs_byte >> shift) & 0x3) | (((sgn_byte >> (j0%8)) & 0x1) << 2);
+        const uint8_t idx1 = ((qs_byte >> (shift+2)) & 0x3) | (((sgn_byte >> (j0%8+1)) & 0x1) << 2);
+
+        float q0 = PI_CENTROIDS_3BIT[idx0];
+        float q1 = PI_CENTROIDS_3BIT[idx1];
+        int p = j0 / 2;
+        float c = PI_COS[p % 64], s = PI_SIN[p % 64];
+
+        sum += ( c * q0 + s * q1) * norm * Q_f2[k_KQ_0/WARP_SIZE].x;
+        sum += (-s * q0 + c * q1) * norm * Q_f2[k_KQ_0/WARP_SIZE].y;
+    }
+    return (T)sum;
+}
+
+// ── IsoQuant3 KQ dot product ──
+template <typename T, int Dk>
+static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_iso3_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_iso3_0 * K = (const block_iso3_0 *) K_c;
+    GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
+    const float2 * Q_f2 = (const float2 *) Q_v;
+    float sum = 0.0f;
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < Dk/2; k_KQ_0 += WARP_SIZE) {
+        const int k_KQ = k_KQ_0 + threadIdx.x;
+        const int elem0 = k_KQ * 2;
+        const int ib = elem0 / QK_ISO3;
+        const int j0 = elem0 % QK_ISO3;
+        const float norm = __half2float(K[ib].norm);
+        int g = j0 / 4, offset = j0 % 4;
+        float qvals[4];
+        for (int ci = 0; ci < 4; ci++) {
+            int jj = g * 4 + ci;
+            uint8_t low = (K[ib].qs[jj/4] >> ((jj%4)*2)) & 0x3;
+            uint8_t hi = (K[ib].signs[jj/8] >> (jj%8)) & 0x1;
+            qvals[ci] = PI_CENTROIDS_3BIT[low | (hi << 2)];
+        }
+        int qg = g % 32;
+        float qw = PI_QW[qg], qx = -PI_QX[qg], qy = -PI_QY[qg], qz = -PI_QZ[qg];
+        float results[4];
+        results[0] = qw*qvals[0] - qx*qvals[1] - qy*qvals[2] - qz*qvals[3];
+        results[1] = qw*qvals[1] + qx*qvals[0] + qy*qvals[3] - qz*qvals[2];
+        results[2] = qw*qvals[2] - qx*qvals[3] + qy*qvals[0] + qz*qvals[1];
+        results[3] = qw*qvals[3] + qx*qvals[2] - qy*qvals[1] + qz*qvals[0];
+        sum += results[offset]   * norm * Q_f2[k_KQ_0/WARP_SIZE].x;
+        sum += results[offset+1] * norm * Q_f2[k_KQ_0/WARP_SIZE].y;
+    }
+    return (T)sum;
+}
+
+// ── PlanarQuant4 KQ dot product ──
+template <typename T, int Dk>
+static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_planar4_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_planar4_0 * K = (const block_planar4_0 *) K_c;
+    GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
+    const float2 * Q_f2 = (const float2 *) Q_v;
+    float sum = 0.0f;
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < Dk/2; k_KQ_0 += WARP_SIZE) {
+        const int k_KQ = k_KQ_0 + threadIdx.x;
+        const int elem0 = k_KQ * 2;
+        const int ib = elem0 / QK_PLANAR4;
+        const int j0 = elem0 % QK_PLANAR4;
+        const float norm = __half2float(K[ib].norm);
+        const uint8_t qs_byte = K[ib].qs[j0 / 2];
+        float q0 = PI_CENTROIDS_4BIT[(qs_byte >> 0) & 0xF];
+        float q1 = PI_CENTROIDS_4BIT[(qs_byte >> 4) & 0xF];
+        int p = j0 / 2;
+        float c = PI_COS[p % 64], s = PI_SIN[p % 64];
+        sum += ( c * q0 + s * q1) * norm * Q_f2[k_KQ_0/WARP_SIZE].x;
+        sum += (-s * q0 + c * q1) * norm * Q_f2[k_KQ_0/WARP_SIZE].y;
+    }
+    return (T)sum;
+}
+
+// ── IsoQuant4 KQ dot product ──
+template <typename T, int Dk>
+static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_iso4_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_iso4_0 * K = (const block_iso4_0 *) K_c;
+    GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
+    const float2 * Q_f2 = (const float2 *) Q_v;
+    float sum = 0.0f;
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < Dk/2; k_KQ_0 += WARP_SIZE) {
+        const int k_KQ = k_KQ_0 + threadIdx.x;
+        const int elem0 = k_KQ * 2;
+        const int ib = elem0 / QK_ISO4;
+        const int j0 = elem0 % QK_ISO4;
+        const float norm = __half2float(K[ib].norm);
+        int g = j0 / 4, offset = j0 % 4;
+        float qvals[4];
+        for (int ci = 0; ci < 4; ci++) {
+            int jj = g * 4 + ci;
+            qvals[ci] = PI_CENTROIDS_4BIT[(K[ib].qs[jj/2] >> ((jj%2)*4)) & 0xF];
+        }
+        int qg = g % 32;
+        float qw = PI_QW[qg], qx = -PI_QX[qg], qy = -PI_QY[qg], qz = -PI_QZ[qg];
+        float results[4];
+        results[0] = qw*qvals[0] - qx*qvals[1] - qy*qvals[2] - qz*qvals[3];
+        results[1] = qw*qvals[1] + qx*qvals[0] + qy*qvals[3] - qz*qvals[2];
+        results[2] = qw*qvals[2] - qx*qvals[3] + qy*qvals[0] + qz*qvals[1];
+        results[3] = qw*qvals[3] + qx*qvals[2] - qy*qvals[1] + qz*qvals[0];
+        sum += results[offset]   * norm * Q_f2[k_KQ_0/WARP_SIZE].x;
+        sum += results[offset+1] * norm * Q_f2[k_KQ_0/WARP_SIZE].y;
+    }
+    return (T)sum;
+}
+
+// ── PlanarQuant/IsoQuant per-element V dequantize ──
+
+template <typename T>
+static __device__ __forceinline__ T dequantize_1_planar3_0(const void * __restrict__ vx, const int64_t i) {
+    const block_planar3_0 * x = (const block_planar3_0 *) vx;
+    const int64_t ib = i / QK_PLANAR3;
+    const int     j  = i % QK_PLANAR3;
+    const float norm = __half2float(x[ib].norm);
+    uint8_t low = (x[ib].qs[j/4] >> ((j%4)*2)) & 0x3;
+    uint8_t hi  = (x[ib].signs[j/8] >> (j%8)) & 0x1;
+    float q_self = PI_CENTROIDS_3BIT[low | (hi << 2)];
+    int partner = (j % 2 == 0) ? j + 1 : j - 1;
+    uint8_t low_p = (x[ib].qs[partner/4] >> ((partner%4)*2)) & 0x3;
+    uint8_t hi_p  = (x[ib].signs[partner/8] >> (partner%8)) & 0x1;
+    float q_partner = PI_CENTROIDS_3BIT[low_p | (hi_p << 2)];
+    int p = j / 2;
+    float c = PI_COS[p % 64], s = PI_SIN[p % 64];
+    float result = (j % 2 == 0) ? (c * q_self + s * q_partner) * norm
+                                : (-s * q_partner + c * q_self) * norm;
+    return (T)result;
+}
+
+template <typename T>
+static __device__ __forceinline__ T dequantize_1_iso3_0(const void * __restrict__ vx, const int64_t i) {
+    const block_iso3_0 * x = (const block_iso3_0 *) vx;
+    const int64_t ib = i / QK_ISO3;
+    const int     j  = i % QK_ISO3;
+    const float norm = __half2float(x[ib].norm);
+    int g = j / 4, offset = j % 4;
+    float qvals[4];
+    for (int ci = 0; ci < 4; ci++) {
+        int jj = g * 4 + ci;
+        uint8_t low = (x[ib].qs[jj/4] >> ((jj%4)*2)) & 0x3;
+        uint8_t hi  = (x[ib].signs[jj/8] >> (jj%8)) & 0x1;
+        qvals[ci] = PI_CENTROIDS_3BIT[low | (hi << 2)];
+    }
+    int qg = g % 32;
+    float qw = PI_QW[qg], qx = -PI_QX[qg], qy = -PI_QY[qg], qz = -PI_QZ[qg];
+    float results[4];
+    results[0] = qw*qvals[0] - qx*qvals[1] - qy*qvals[2] - qz*qvals[3];
+    results[1] = qw*qvals[1] + qx*qvals[0] + qy*qvals[3] - qz*qvals[2];
+    results[2] = qw*qvals[2] - qx*qvals[3] + qy*qvals[0] + qz*qvals[1];
+    results[3] = qw*qvals[3] + qx*qvals[2] - qy*qvals[1] + qz*qvals[0];
+    return (T)(results[offset] * norm);
+}
+
+template <typename T>
+static __device__ __forceinline__ T dequantize_1_planar4_0(const void * __restrict__ vx, const int64_t i) {
+    const block_planar4_0 * x = (const block_planar4_0 *) vx;
+    const int64_t ib = i / QK_PLANAR4;
+    const int     j  = i % QK_PLANAR4;
+    const float norm = __half2float(x[ib].norm);
+    float q_self = PI_CENTROIDS_4BIT[(x[ib].qs[j/2] >> ((j%2)*4)) & 0xF];
+    int partner = (j % 2 == 0) ? j + 1 : j - 1;
+    float q_partner = PI_CENTROIDS_4BIT[(x[ib].qs[partner/2] >> ((partner%2)*4)) & 0xF];
+    int p = j / 2;
+    float c = PI_COS[p % 64], s = PI_SIN[p % 64];
+    float result = (j % 2 == 0) ? (c * q_self + s * q_partner) * norm
+                                : (-s * q_partner + c * q_self) * norm;
+    return (T)result;
+}
+
+template <typename T>
+static __device__ __forceinline__ T dequantize_1_iso4_0(const void * __restrict__ vx, const int64_t i) {
+    const block_iso4_0 * x = (const block_iso4_0 *) vx;
+    const int64_t ib = i / QK_ISO4;
+    const int     j  = i % QK_ISO4;
+    const float norm = __half2float(x[ib].norm);
+    int g = j / 4, offset = j % 4;
+    float qvals[4];
+    for (int ci = 0; ci < 4; ci++) {
+        int jj = g * 4 + ci;
+        qvals[ci] = PI_CENTROIDS_4BIT[(x[ib].qs[jj/2] >> ((jj%2)*4)) & 0xF];
+    }
+    int qg = g % 32;
+    float qw = PI_QW[qg], qx = -PI_QX[qg], qy = -PI_QY[qg], qz = -PI_QZ[qg];
+    float results[4];
+    results[0] = qw*qvals[0] - qx*qvals[1] - qy*qvals[2] - qz*qvals[3];
+    results[1] = qw*qvals[1] + qx*qvals[0] + qy*qvals[3] - qz*qvals[2];
+    results[2] = qw*qvals[2] - qx*qvals[3] + qy*qvals[0] + qz*qvals[1];
+    results[3] = qw*qvals[3] + qx*qvals[2] - qy*qvals[1] + qz*qvals[0];
+    return (T)(results[offset] * norm);
+}
+
 template <typename Tds>
 static __device__ __forceinline__ void quantize_q8_1_to_shared(
     const float * __restrict__ x, const float scale, int * __restrict__ yq32, void * __restrict__ yds) {
@@ -615,51 +839,67 @@ static __device__ __forceinline__ T dequantize_1_f16(const void * __restrict__ v
 
 template <int Dk>
 constexpr __device__ vec_dot_KQ_f16_t get_vec_dot_KQ_f16(ggml_type type_K) {
-    return type_K == GGML_TYPE_Q4_0   ? vec_dot_fattn_vec_KQ_q4_0<half, Dk>   :
-           type_K == GGML_TYPE_Q4_1   ? vec_dot_fattn_vec_KQ_q4_1<half, Dk>   :
-           type_K == GGML_TYPE_IQ4_NL ? vec_dot_fattn_vec_KQ_iq4_nl<half, Dk> :
-           type_K == GGML_TYPE_Q5_0   ? vec_dot_fattn_vec_KQ_q5_0<half, Dk>   :
-           type_K == GGML_TYPE_Q5_1   ? vec_dot_fattn_vec_KQ_q5_1<half, Dk>   :
-           type_K == GGML_TYPE_Q6_0   ? vec_dot_fattn_vec_KQ_q6_0<half, Dk>   :
-           type_K == GGML_TYPE_Q8_0   ? vec_dot_fattn_vec_KQ_q8_0<half, Dk>   :
-           type_K == GGML_TYPE_F16    ? vec_dot_fattn_vec_KQ_f16<half, Dk>    :
+    return type_K == GGML_TYPE_Q4_0      ? vec_dot_fattn_vec_KQ_q4_0<half, Dk>      :
+           type_K == GGML_TYPE_Q4_1      ? vec_dot_fattn_vec_KQ_q4_1<half, Dk>      :
+           type_K == GGML_TYPE_IQ4_NL    ? vec_dot_fattn_vec_KQ_iq4_nl<half, Dk>    :
+           type_K == GGML_TYPE_Q5_0      ? vec_dot_fattn_vec_KQ_q5_0<half, Dk>      :
+           type_K == GGML_TYPE_Q5_1      ? vec_dot_fattn_vec_KQ_q5_1<half, Dk>      :
+           type_K == GGML_TYPE_Q6_0      ? vec_dot_fattn_vec_KQ_q6_0<half, Dk>      :
+           type_K == GGML_TYPE_Q8_0      ? vec_dot_fattn_vec_KQ_q8_0<half, Dk>      :
+           type_K == GGML_TYPE_F16       ? vec_dot_fattn_vec_KQ_f16<half, Dk>       :
+           type_K == GGML_TYPE_PLANAR3_0 ? vec_dot_fattn_vec_KQ_planar3_0<half, Dk> :
+           type_K == GGML_TYPE_ISO3_0    ? vec_dot_fattn_vec_KQ_iso3_0<half, Dk>    :
+           type_K == GGML_TYPE_PLANAR4_0 ? vec_dot_fattn_vec_KQ_planar4_0<half, Dk> :
+           type_K == GGML_TYPE_ISO4_0    ? vec_dot_fattn_vec_KQ_iso4_0<half, Dk>    :
            nullptr;
 }
 
 template <int Dk>
 constexpr __device__ vec_dot_KQ_f32_t get_vec_dot_KQ_f32(ggml_type type_K) {
-    return type_K == GGML_TYPE_Q4_0   ? vec_dot_fattn_vec_KQ_q4_0<float, Dk>   :
-           type_K == GGML_TYPE_Q4_1   ? vec_dot_fattn_vec_KQ_q4_1<float, Dk>   :
-           type_K == GGML_TYPE_IQ4_NL ? vec_dot_fattn_vec_KQ_iq4_nl<float, Dk> :
-           type_K == GGML_TYPE_Q5_0   ? vec_dot_fattn_vec_KQ_q5_0<float, Dk>   :
-           type_K == GGML_TYPE_Q5_1   ? vec_dot_fattn_vec_KQ_q5_1<float, Dk>   :
-           type_K == GGML_TYPE_Q6_0   ? vec_dot_fattn_vec_KQ_q6_0<float, Dk>   :
-           type_K == GGML_TYPE_Q8_0   ? vec_dot_fattn_vec_KQ_q8_0<float, Dk>   :
-           type_K == GGML_TYPE_F16    ? vec_dot_fattn_vec_KQ_f16<float, Dk>    :
+    return type_K == GGML_TYPE_Q4_0      ? vec_dot_fattn_vec_KQ_q4_0<float, Dk>      :
+           type_K == GGML_TYPE_Q4_1      ? vec_dot_fattn_vec_KQ_q4_1<float, Dk>      :
+           type_K == GGML_TYPE_IQ4_NL    ? vec_dot_fattn_vec_KQ_iq4_nl<float, Dk>    :
+           type_K == GGML_TYPE_Q5_0      ? vec_dot_fattn_vec_KQ_q5_0<float, Dk>      :
+           type_K == GGML_TYPE_Q5_1      ? vec_dot_fattn_vec_KQ_q5_1<float, Dk>      :
+           type_K == GGML_TYPE_Q6_0      ? vec_dot_fattn_vec_KQ_q6_0<float, Dk>      :
+           type_K == GGML_TYPE_Q8_0      ? vec_dot_fattn_vec_KQ_q8_0<float, Dk>      :
+           type_K == GGML_TYPE_F16       ? vec_dot_fattn_vec_KQ_f16<float, Dk>       :
+           type_K == GGML_TYPE_PLANAR3_0 ? vec_dot_fattn_vec_KQ_planar3_0<float, Dk> :
+           type_K == GGML_TYPE_ISO3_0    ? vec_dot_fattn_vec_KQ_iso3_0<float, Dk>    :
+           type_K == GGML_TYPE_PLANAR4_0 ? vec_dot_fattn_vec_KQ_planar4_0<float, Dk> :
+           type_K == GGML_TYPE_ISO4_0    ? vec_dot_fattn_vec_KQ_iso4_0<float, Dk>    :
            nullptr;
 }
 
 constexpr __device__ dequantize_1_f16_t get_dequantize_1_f16(ggml_type type_V) {
-    return type_V == GGML_TYPE_Q4_0   ? dequantize_1_q4_0<half> :
-           type_V == GGML_TYPE_Q4_1   ? dequantize_1_q4_1<half> :
-           type_V == GGML_TYPE_Q5_0   ? dequantize_1_q5_0<half> :
-           type_V == GGML_TYPE_Q5_1   ? dequantize_1_q5_1<half> :
-           type_V == GGML_TYPE_Q6_0   ? dequantize_1_q6_0<half> :
-           type_V == GGML_TYPE_Q8_0   ? dequantize_1_q8_0<half> :
-           type_V == GGML_TYPE_IQ4_NL ? dequantize_1_iq4_nl<half> :
-           type_V == GGML_TYPE_F16    ? dequantize_1_f16<half> :
+    return type_V == GGML_TYPE_Q4_0      ? dequantize_1_q4_0<half>      :
+           type_V == GGML_TYPE_Q4_1      ? dequantize_1_q4_1<half>      :
+           type_V == GGML_TYPE_Q5_0      ? dequantize_1_q5_0<half>      :
+           type_V == GGML_TYPE_Q5_1      ? dequantize_1_q5_1<half>      :
+           type_V == GGML_TYPE_Q6_0      ? dequantize_1_q6_0<half>      :
+           type_V == GGML_TYPE_Q8_0      ? dequantize_1_q8_0<half>      :
+           type_V == GGML_TYPE_IQ4_NL    ? dequantize_1_iq4_nl<half>    :
+           type_V == GGML_TYPE_F16       ? dequantize_1_f16<half>       :
+           type_V == GGML_TYPE_PLANAR3_0 ? dequantize_1_planar3_0<half> :
+           type_V == GGML_TYPE_ISO3_0    ? dequantize_1_iso3_0<half>    :
+           type_V == GGML_TYPE_PLANAR4_0 ? dequantize_1_planar4_0<half> :
+           type_V == GGML_TYPE_ISO4_0    ? dequantize_1_iso4_0<half>    :
            nullptr;
 }
 
 constexpr __device__ dequantize_1_f32_t get_dequantize_1_f32(ggml_type type_V) {
-    return type_V == GGML_TYPE_Q4_0   ? dequantize_1_q4_0<float> :
-           type_V == GGML_TYPE_Q4_1   ? dequantize_1_q4_1<float> :
-           type_V == GGML_TYPE_Q5_0   ? dequantize_1_q5_0<float> :
-           type_V == GGML_TYPE_Q5_1   ? dequantize_1_q5_1<float> :
-           type_V == GGML_TYPE_Q6_0   ? dequantize_1_q6_0<float> :
-           type_V == GGML_TYPE_Q8_0   ? dequantize_1_q8_0<float> :
-           type_V == GGML_TYPE_IQ4_NL ? dequantize_1_iq4_nl<float> :
-           type_V == GGML_TYPE_F16    ? dequantize_1_f16<float> :
+    return type_V == GGML_TYPE_Q4_0      ? dequantize_1_q4_0<float>      :
+           type_V == GGML_TYPE_Q4_1      ? dequantize_1_q4_1<float>      :
+           type_V == GGML_TYPE_Q5_0      ? dequantize_1_q5_0<float>      :
+           type_V == GGML_TYPE_Q5_1      ? dequantize_1_q5_1<float>      :
+           type_V == GGML_TYPE_Q6_0      ? dequantize_1_q6_0<float>      :
+           type_V == GGML_TYPE_Q8_0      ? dequantize_1_q8_0<float>      :
+           type_V == GGML_TYPE_IQ4_NL    ? dequantize_1_iq4_nl<float>    :
+           type_V == GGML_TYPE_F16       ? dequantize_1_f16<float>       :
+           type_V == GGML_TYPE_PLANAR3_0 ? dequantize_1_planar3_0<float> :
+           type_V == GGML_TYPE_ISO3_0    ? dequantize_1_iso3_0<float>    :
+           type_V == GGML_TYPE_PLANAR4_0 ? dequantize_1_planar4_0<float> :
+           type_V == GGML_TYPE_ISO4_0    ? dequantize_1_iso4_0<float>    :
            nullptr;
 }
 

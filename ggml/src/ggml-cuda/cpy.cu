@@ -2,6 +2,7 @@
 #include "dequantize.cuh"
 #include "graph.cuh"
 #include "cpy-utils.cuh"
+#include "cpy-planar-iso.cuh"
 #if defined(GGML_USE_MUSA) && defined(GGML_MUSA_MUDNN_COPY)
 #include "ggml-musa/mudnn.cuh"
 #endif // GGML_USE_MUSA && GGML_MUSA_MUDNN_COPY
@@ -646,6 +647,14 @@ void ggml_cuda_cpy(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, gg
     } else if (ggml_are_same_shape(src0, src1) && src0->type == GGML_TYPE_Q8_0 && src1->type == GGML_TYPE_Q8_0) {
         // This is needed for MLA with mla=2 when using q8_0 cache.
         transpose_q8_0(ctx, src0, src1);
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_PLANAR3_0) {
+        ggml_cuda_cpy_f16_planar3(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_PLANAR4_0) {
+        ggml_cuda_cpy_f16_planar4(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_ISO3_0) {
+        ggml_cuda_cpy_f16_iso3(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_ISO4_0) {
+        ggml_cuda_cpy_f16_iso4(src0_ddc, src1_ddc, ne, main_stream);
     } else {
         GGML_ABORT("%s: unsupported type combination (%s to %s)\n", __func__,
                 ggml_type_name(src0->type), ggml_type_name(src1->type));
