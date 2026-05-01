@@ -3,27 +3,29 @@
 // static __constant__ so each CUDA compilation unit gets its own initialized copy.
 // No runtime init needed — constants are baked in at compile time.
 
-// 3-bit centroids (same as turbo3)
+// 3-bit centroids: Lloyd-Max optimal for N(0, 1/sqrt(128)) — the distribution of
+// each component of an L2-normalized d=128 Gaussian vector.
 static __constant__ float PI_CENTROIDS_3BIT[8] = {
-    -0.190685f, -0.117832f, -0.065717f, -0.021460f,
-     0.021460f,  0.065717f,  0.117832f,  0.190685f
+    -0.189797393f, -0.118473982f, -0.066629645f, -0.021598610f,
+     0.021598610f,  0.066629645f,  0.118473982f,  0.189797393f
 };
-// 3-bit midpoints for fast quantization
+// 3-bit midpoints for O(1) nearest-centroid lookup
 static __constant__ float PI_MID_3BIT[7] = {
-    -0.154259f, -0.091775f, -0.043589f, 0.0f, 0.043589f, 0.091775f, 0.154259f
+    -0.154135688f, -0.092551814f, -0.044114128f, 0.0f, 0.044114128f, 0.092551814f, 0.154135688f
 };
-// 4-bit centroids (same as turbo4)
+// 4-bit centroids: Lloyd-Max optimal for N(0, 1/sqrt(128)).
+// NOTE: These are NOT the same as turbo4 centroids (which target a different distribution).
 static __constant__ float PI_CENTROIDS_4BIT[16] = {
-    -0.173926f, -0.117195f, -0.089527f, -0.068756f,
-    -0.051262f, -0.035597f, -0.020989f, -0.006938f,
-     0.006938f,  0.020989f,  0.035597f,  0.051262f,
-     0.068756f,  0.089527f,  0.117195f,  0.173926f
+    -0.240803750f, -0.182222715f, -0.142468764f, -0.110596604f,
+    -0.082955822f, -0.057812915f, -0.034158020f, -0.011301852f,
+     0.011301852f,  0.034158020f,  0.057812915f,  0.082955822f,
+     0.110596604f,  0.142468764f,  0.182222715f,  0.240803750f
 };
-// 4-bit midpoints for fast O(1) quantization
+// 4-bit midpoints for O(1) nearest-centroid lookup
 static __constant__ float PI_MID_4BIT[15] = {
-    -0.145561f, -0.103361f, -0.079142f, -0.060009f, -0.043430f, -0.028293f, -0.013964f,
-     0.000000f,
-     0.013964f,  0.028293f,  0.043430f,  0.060009f,  0.079142f,  0.103361f,  0.145561f
+    -0.211513233f, -0.162345739f, -0.126532684f, -0.096776213f, -0.070384368f, -0.045985467f, -0.022729936f,
+     0.000000000f,
+     0.022729936f,  0.045985467f,  0.070384368f,  0.096776213f,  0.126532684f,  0.162345739f,  0.211513233f
 };
 
 // Givens rotation: cos/sin for 64 pairs (seed=42, LCG PRNG)

@@ -20,10 +20,10 @@
 
 #define PLANAR_D 128
 
-/* Same centroids as turbo3 (Lloyd-Max for N(0, 1/128)) */
+/* Lloyd-Max optimal centroids for N(0, 1/sqrt(128)) */
 static const float PLANAR_CENTROIDS_3BIT[8] = {
-    -0.1906850000f, -0.1178320000f, -0.0657170000f, -0.0214600000f,
-    0.0214600000f, 0.0657170000f, 0.1178320000f, 0.1906850000f,
+    -0.189797393f, -0.118473982f, -0.066629645f, -0.021598610f,
+     0.021598610f,  0.066629645f,  0.118473982f,  0.189797393f,
 };
 
 /* Rotation parameters: cos/sin per pair (lazy init) */
@@ -42,9 +42,8 @@ static void planar_init_rotation(void) {
     pthread_once(&planar_rotation_once, planar_init_rotation_impl);
 }
 
-/* Midpoints between adjacent 3-bit centroids for O(1) nearest-centroid lookup */
 static const float PLANAR_MIDPOINTS_3BIT[7] = {
-    -0.154259f, -0.091775f, -0.043589f, 0.000000f, 0.043589f, 0.091775f, 0.154259f
+    -0.154135688f, -0.092551814f, -0.044114128f, 0.000000f, 0.044114128f, 0.092551814f, 0.154135688f
 };
 
 static int nearest_centroid_planar3(float val) {
