@@ -99,11 +99,15 @@ void ggml_cuda_flash_attn_ext_vec_f16(ggml_backend_cuda_context & ctx, ggml_tens
 
 #endif // GGML_CUDA_FA_ALL_QUANTS
 
-    // PlanarQuant/IsoQuant KV cache types (always available)
+    // PlanarQuant/IsoQuant KV cache types (always available, hs128 and hs256)
     FATTN_VEC_F16_CASE(128, GGML_TYPE_PLANAR3_0, GGML_TYPE_PLANAR3_0)
     FATTN_VEC_F16_CASE(128, GGML_TYPE_ISO3_0,    GGML_TYPE_ISO3_0)
     FATTN_VEC_F16_CASE(128, GGML_TYPE_PLANAR4_0, GGML_TYPE_PLANAR4_0)
     FATTN_VEC_F16_CASE(128, GGML_TYPE_ISO4_0,    GGML_TYPE_ISO4_0)
+    FATTN_VEC_F16_CASE(256, GGML_TYPE_PLANAR3_0, GGML_TYPE_PLANAR3_0)
+    FATTN_VEC_F16_CASE(256, GGML_TYPE_ISO3_0,    GGML_TYPE_ISO3_0)
+    FATTN_VEC_F16_CASE(256, GGML_TYPE_PLANAR4_0, GGML_TYPE_PLANAR4_0)
+    FATTN_VEC_F16_CASE(256, GGML_TYPE_ISO4_0,    GGML_TYPE_ISO4_0)
 
     on_no_fattn_vec_case(Q->ne[0], V->ne[0]);
 }
@@ -155,6 +159,9 @@ bool ggml_cuda_fattn_vec_f16_is_supported([[maybe_unused]] ggml_backend_cuda_con
         return K->type == GGML_TYPE_F16;
     }
     if (K->ne[0] == 256) {
+        if (K->type == V->type &&
+            (K->type == GGML_TYPE_PLANAR3_0 || K->type == GGML_TYPE_ISO3_0 ||
+             K->type == GGML_TYPE_PLANAR4_0 || K->type == GGML_TYPE_ISO4_0)) return true;
         return K->type == GGML_TYPE_F16 || K->type == GGML_TYPE_Q8_0;
     }
     return false;
