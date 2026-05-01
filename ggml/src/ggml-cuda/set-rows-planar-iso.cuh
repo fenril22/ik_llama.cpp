@@ -12,33 +12,37 @@
 #include <cuda_fp16.h>
 #include <cmath>
 
-// Init function from cpy-planar-iso.cu (still needed for cpy path)
-extern void ggml_cuda_init_planar_iso_constants();
-
 // ── Helpers ─────────────────────────────────────────────────────────
 
 __device__ __forceinline__ uint8_t sr_quantize_3bit(float val, const float * mid) {
-    uint8_t idx = 0;
-    if      (val < mid[0]) idx = 0;
-    else if (val < mid[1]) idx = 1;
-    else if (val < mid[2]) idx = 2;
-    else if (val < mid[3]) idx = 3;
-    else if (val < mid[4]) idx = 4;
-    else if (val < mid[5]) idx = 5;
-    else if (val < mid[6]) idx = 6;
-    else                   idx = 7;
-    return idx;
+    if      (val < mid[0]) return 0;
+    else if (val < mid[1]) return 1;
+    else if (val < mid[2]) return 2;
+    else if (val < mid[3]) return 3;
+    else if (val < mid[4]) return 4;
+    else if (val < mid[5]) return 5;
+    else if (val < mid[6]) return 6;
+    else                   return 7;
 }
 
-__device__ __forceinline__ uint8_t sr_quantize_4bit(float val, const float * centroids) {
-    uint8_t best = 0;
-    float best_d = fabsf(val - centroids[0]);
-    #pragma unroll
-    for (int i = 1; i < 16; i++) {
-        float d = fabsf(val - centroids[i]);
-        if (d < best_d) { best_d = d; best = i; }
-    }
-    return best;
+__device__ __forceinline__ uint8_t sr_quantize_4bit(float val, const float * /*unused*/) {
+    // O(1) midpoint comparison; PI_MID_4BIT from planar-iso-constants.cuh
+    if      (val < PI_MID_4BIT[0])  return 0;
+    else if (val < PI_MID_4BIT[1])  return 1;
+    else if (val < PI_MID_4BIT[2])  return 2;
+    else if (val < PI_MID_4BIT[3])  return 3;
+    else if (val < PI_MID_4BIT[4])  return 4;
+    else if (val < PI_MID_4BIT[5])  return 5;
+    else if (val < PI_MID_4BIT[6])  return 6;
+    else if (val < PI_MID_4BIT[7])  return 7;
+    else if (val < PI_MID_4BIT[8])  return 8;
+    else if (val < PI_MID_4BIT[9])  return 9;
+    else if (val < PI_MID_4BIT[10]) return 10;
+    else if (val < PI_MID_4BIT[11]) return 11;
+    else if (val < PI_MID_4BIT[12]) return 12;
+    else if (val < PI_MID_4BIT[13]) return 13;
+    else if (val < PI_MID_4BIT[14]) return 14;
+    else                            return 15;
 }
 
 // ── Planar3: F32[128] → block_planar3_0 ─────────────────────────────

@@ -42,14 +42,20 @@ static void planar_init_rotation(void) {
     pthread_once(&planar_rotation_once, planar_init_rotation_impl);
 }
 
+/* Midpoints between adjacent 3-bit centroids for O(1) nearest-centroid lookup */
+static const float PLANAR_MIDPOINTS_3BIT[7] = {
+    -0.154259f, -0.091775f, -0.043589f, 0.000000f, 0.043589f, 0.091775f, 0.154259f
+};
+
 static int nearest_centroid_planar3(float val) {
-    int best = 0;
-    float best_d = fabsf(val - PLANAR_CENTROIDS_3BIT[0]);
-    for (int i = 1; i < 8; i++) {
-        float d = fabsf(val - PLANAR_CENTROIDS_3BIT[i]);
-        if (d < best_d) { best_d = d; best = i; }
-    }
-    return best;
+    if      (val < PLANAR_MIDPOINTS_3BIT[0]) return 0;
+    else if (val < PLANAR_MIDPOINTS_3BIT[1]) return 1;
+    else if (val < PLANAR_MIDPOINTS_3BIT[2]) return 2;
+    else if (val < PLANAR_MIDPOINTS_3BIT[3]) return 3;
+    else if (val < PLANAR_MIDPOINTS_3BIT[4]) return 4;
+    else if (val < PLANAR_MIDPOINTS_3BIT[5]) return 5;
+    else if (val < PLANAR_MIDPOINTS_3BIT[6]) return 6;
+    else                                     return 7;
 }
 
 void quantize_row_planar3_0_ref(const float * GGML_RESTRICT x, block_planar3_0 * GGML_RESTRICT y, int64_t k) {

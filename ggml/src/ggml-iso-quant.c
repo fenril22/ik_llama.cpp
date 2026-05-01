@@ -56,14 +56,20 @@ static void quat_mul(float aw, float ax, float ay, float az,
     *rz = aw*bz + ax*by - ay*bx + az*bw;
 }
 
+/* Midpoints between adjacent 3-bit centroids for O(1) nearest-centroid lookup */
+static const float ISO_MIDPOINTS_3BIT[7] = {
+    -0.154259f, -0.091775f, -0.043589f, 0.000000f, 0.043589f, 0.091775f, 0.154259f
+};
+
 static int nearest_centroid_iso3(float val) {
-    int best = 0;
-    float best_d = fabsf(val - ISO_CENTROIDS_3BIT[0]);
-    for (int i = 1; i < 8; i++) {
-        float d = fabsf(val - ISO_CENTROIDS_3BIT[i]);
-        if (d < best_d) { best_d = d; best = i; }
-    }
-    return best;
+    if      (val < ISO_MIDPOINTS_3BIT[0]) return 0;
+    else if (val < ISO_MIDPOINTS_3BIT[1]) return 1;
+    else if (val < ISO_MIDPOINTS_3BIT[2]) return 2;
+    else if (val < ISO_MIDPOINTS_3BIT[3]) return 3;
+    else if (val < ISO_MIDPOINTS_3BIT[4]) return 4;
+    else if (val < ISO_MIDPOINTS_3BIT[5]) return 5;
+    else if (val < ISO_MIDPOINTS_3BIT[6]) return 6;
+    else                                  return 7;
 }
 
 void quantize_row_iso3_0_ref(const float * GGML_RESTRICT x, block_iso3_0 * GGML_RESTRICT y, int64_t k) {

@@ -38,14 +38,29 @@ static void iso4_init(void) {
     pthread_once(&i4_once, iso4_init_impl);
 }
 
+static const float ISO4_MIDPOINTS[15] = {
+    -0.145561f, -0.103361f, -0.079142f, -0.060009f, -0.043430f, -0.028293f, -0.013964f,
+     0.000000f,
+     0.013964f,  0.028293f,  0.043430f,  0.060009f,  0.079142f,  0.103361f,  0.145561f
+};
+
 static int nearest_16(float val) {
-    int best = 0;
-    float best_d = fabsf(val - ISO4_CENTROIDS[0]);
-    for (int i = 1; i < 16; i++) {
-        float d = fabsf(val - ISO4_CENTROIDS[i]);
-        if (d < best_d) { best_d = d; best = i; }
-    }
-    return best;
+    if      (val < ISO4_MIDPOINTS[0])  return 0;
+    else if (val < ISO4_MIDPOINTS[1])  return 1;
+    else if (val < ISO4_MIDPOINTS[2])  return 2;
+    else if (val < ISO4_MIDPOINTS[3])  return 3;
+    else if (val < ISO4_MIDPOINTS[4])  return 4;
+    else if (val < ISO4_MIDPOINTS[5])  return 5;
+    else if (val < ISO4_MIDPOINTS[6])  return 6;
+    else if (val < ISO4_MIDPOINTS[7])  return 7;
+    else if (val < ISO4_MIDPOINTS[8])  return 8;
+    else if (val < ISO4_MIDPOINTS[9])  return 9;
+    else if (val < ISO4_MIDPOINTS[10]) return 10;
+    else if (val < ISO4_MIDPOINTS[11]) return 11;
+    else if (val < ISO4_MIDPOINTS[12]) return 12;
+    else if (val < ISO4_MIDPOINTS[13]) return 13;
+    else if (val < ISO4_MIDPOINTS[14]) return 14;
+    else                               return 15;
 }
 
 void quantize_row_iso4_0_ref(const float * GGML_RESTRICT x, block_iso4_0 * GGML_RESTRICT y, int64_t k) {
