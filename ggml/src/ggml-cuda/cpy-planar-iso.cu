@@ -10,6 +10,7 @@
 #include "ggml-common.h"
 
 #include <cmath>
+#include <mutex>
 
 // ── Rotation constants (must match Python exactly) ────────────────────
 // Generated from: torch.manual_seed(42); torch.rand(64) * 2π → cos/sin
@@ -441,10 +442,10 @@ __global__ void kernel_cpy_f32_iso4(
 
 // ── Host dispatch functions (called from cpy.cu) ────────────────────
 
-static bool constants_initialized = false;
+static std::once_flag constants_once;
 
 void ggml_cuda_init_planar_iso_constants() {
-    if (constants_initialized) return;
+    std::call_once(constants_once, []() {
 
     // Hardcoded rotation constants — must match planar-iso-constants.cuh exactly.
     // Generated from LCG PRNG with seed=42 (verified against C reference code).
@@ -461,8 +462,7 @@ void ggml_cuda_init_planar_iso_constants() {
     CUDA_CHECK(cudaMemcpyToSymbol(d_iso_qx, h_qx, sizeof(h_qx)));
     CUDA_CHECK(cudaMemcpyToSymbol(d_iso_qy, h_qy, sizeof(h_qy)));
     CUDA_CHECK(cudaMemcpyToSymbol(d_iso_qz, h_qz, sizeof(h_qz)));
-
-    constants_initialized = true;
+    });
 }
 
 void ggml_cuda_cpy_f16_planar3(const char * src, char * dst, int64_t ne, cudaStream_t stream) {
