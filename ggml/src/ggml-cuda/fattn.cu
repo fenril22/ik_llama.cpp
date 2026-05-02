@@ -56,6 +56,14 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
         dst = &local_dst;
     }
 
+    // TurboQuant KV types: fattn-mma does not support them; route to fattn-vec-f16.
+    // fattn-vec-f16 handles quantized K/V via dequant inside the kernel.
+    if (K->type == GGML_TYPE_TURBO3_0 || K->type == GGML_TYPE_TURBO4_0 || K->type == GGML_TYPE_TURBO2_0 ||
+        V->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO4_0 || V->type == GGML_TYPE_TURBO2_0) {
+        ggml_cuda_flash_attn_ext_vec_f16(ctx, dst);
+        return;
+    }
+
     // On AMD the tile kernels perform poorly, use the vec kernel instead:
     if (cc >= CC_OFFSET_AMD) {
         if (precision == GGML_PREC_DEFAULT && fast_fp16_available(cc)) {
@@ -157,6 +165,13 @@ bool ggml_cuda_fattn_is_supported(ggml_backend_cuda_context & ctx, const ggml_te
     const int cc = ggml_cuda_info().devices[ggml_cuda_get_device()].cc;
     const int32_t precision = KQV->op_params[3];
     const int32_t n_swa = KQV->op_params[4];
+
+    // TurboQuant types: delegate to fattn-vec-f16 support check
+    if (K->type == GGML_TYPE_TURBO3_0 || K->type == GGML_TYPE_TURBO4_0 || K->type == GGML_TYPE_TURBO2_0 ||
+        V->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO4_0 || V->type == GGML_TYPE_TURBO2_0) {
+        return ggml_cuda_fattn_vec_f16_is_supported(ctx, dst);
+    }
+
     if (cc >= CC_OFFSET_AMD) {
         return precision == GGML_PREC_DEFAULT ? ggml_cuda_fattn_vec_f16_is_supported(ctx, dst)
                                               : ggml_cuda_fattn_vec_f32_is_supported(ctx, dst);
