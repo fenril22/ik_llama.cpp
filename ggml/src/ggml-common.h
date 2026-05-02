@@ -346,10 +346,9 @@ typedef struct {
 } block_iso4_0;
 static_assert(sizeof(block_iso4_0) == 68, "wrong iso4_0 block size");
 
-// TurboQuant 3-bit: WHT + 3-bit PolarQuant indices (no QJL)
-// Per block: norm(fp16) + 2-bit indices (32 bytes) + 1-bit extra (16 bytes) = 14 bytes per 128 values... wait:
-// QK_TURBO3=128: norm(2) + qs[128/4=32] + signs[128/8=16] = 50 bytes per 128 values = 3.125 bpv
-// Block size is 128 (one block per rotation group, eliminates redundant norms)
+// TurboQuant 3-bit: WHT rotation + 3-bit PolarQuant (Lloyd-Max)
+// Block: norm(fp16=2B) + qs[32B: lower 2-bit, 4/byte] + signs[16B: upper 1-bit, 8/byte]
+// = 50 bytes per 128 values = 3.125 bpv (3.4375 bpw on disk due to framing)
 #define QK_TURBO3 128
 #define QK_TURBO3_GROUP 128
 #define NL_TURBO3     (QK_TURBO3 / 16)
@@ -361,24 +360,21 @@ typedef struct {
 } block_turbo3_0;
 static_assert(sizeof(block_turbo3_0) == sizeof(ggml_half) + QK_TURBO3/4 + QK_TURBO3/8, "wrong turbo3_0 block size/padding");
 
-// TurboQuant 4-bit: WHT + 4-bit PolarQuant indices (nibble packed)
-// Per block: norm(fp16) + rnorm(fp16) + 4-bit indices (64 bytes) = 68 bytes per 128 values = 4.25 bpv
-#ifndef TURBO4_USE_4BIT
-#  define TURBO4_USE_4BIT 1
-#endif
+// TurboQuant 4-bit: WHT rotation + 4-bit PolarQuant (Lloyd-Max, nibble packed)
+// Block: norm(fp16=2B) + rnorm(fp16=2B, reserved/zero) + qs[64B: 4-bit nibble packed]
+// = 68 bytes per 128 values = 4.25 bpv
 #define QK_TURBO4 128
 static_assert(QK_TURBO4 == 128, "turbo4 kernels assume QK_TURBO4 == 128");
 typedef struct {
     ggml_half  norm;
-    ggml_half  rnorm;                   // reserved (unused in 4-bit mode)
+    ggml_half  rnorm;                   // reserved, always zero
     uint8_t    qs[QK_TURBO4 / 2];      // 4-bit PolarQuant indices (nibble packed)
 } block_turbo4_0;
 static_assert(sizeof(block_turbo4_0) == 68, "wrong turbo4_0 block size");
 
-// TurboQuant 2-bit: WHT + 2-bit PolarQuant indices only
-// Per block: norm(fp16) + 2-bit indices (32 bytes) = 34 bytes per 128 values... wait:
-// QK_TURBO2=128: norm(2) + qs[128/4=32] = 34 bytes = 2.125 bpv... but sign says 10 bytes?
-// Actually block_size=128: norm(2) + qs[128/4=32] = 34 bytes
+// TurboQuant 2-bit: WHT rotation + 2-bit PolarQuant (Lloyd-Max)
+// Block: norm(fp16=2B) + qs[32B: 2-bit indices, 4 per byte]
+// = 34 bytes per 128 values = 2.125 bpv
 #define QK_TURBO2 128
 #define QK_TURBO2_GROUP 128
 #define NL_TURBO2     (QK_TURBO2 / 16)

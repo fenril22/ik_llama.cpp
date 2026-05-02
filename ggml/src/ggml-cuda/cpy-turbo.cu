@@ -50,18 +50,16 @@ static __global__ void k_cpy_f16_turbo3(
     if (b >= n_blocks) return;
     const int j = threadIdx.x;  // 0..N-1
 
-    __shared__ float x[N];
     __shared__ float smem[N_WARPS];
 
-    x[j] = __half2float(s[b * N + j]);
-    __syncthreads();
+    const float v = __half2float(s[b * N + j]);
 
     // L2 norm (warp reduction)
-    float norm_sq = block_reduce_sum<N_WARPS>(x[j] * x[j], smem);
+    float norm_sq = block_reduce_sum<N_WARPS>(v * v, smem);
     const float grp_norm = sqrtf(norm_sq);
     const float inv = (grp_norm > 1e-10f) ? 1.0f / grp_norm : 0.0f;
 
-    const float xn = x[j] * inv;
+    const float xn = v * inv;
     const uint8_t idx = turbo_nearest_centroid_3bit(xn);
 
     // Pack qs (4 elements per byte, 2-bit each) — warp cooperative

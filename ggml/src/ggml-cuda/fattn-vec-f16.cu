@@ -164,6 +164,8 @@ bool ggml_cuda_fattn_vec_f16_is_supported([[maybe_unused]] ggml_backend_cuda_con
                    K->type == GGML_TYPE_TURBO3_0  || K->type == GGML_TYPE_TURBO4_0 ||
                    K->type == GGML_TYPE_TURBO2_0;
         }
+        if ((K->type == GGML_TYPE_TURBO3_0 && V->type == GGML_TYPE_Q8_0) ||
+            (K->type == GGML_TYPE_Q8_0     && V->type == GGML_TYPE_TURBO3_0)) return true;
         return (K->type == GGML_TYPE_Q8_0 && V->type == GGML_TYPE_IQ4_NL) ||
                (K->type == GGML_TYPE_Q6_0 && V->type == GGML_TYPE_Q5_0)   ||
                (K->type == GGML_TYPE_Q8_0 && V->type == GGML_TYPE_Q6_0)   ||
