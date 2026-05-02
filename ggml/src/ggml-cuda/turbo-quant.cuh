@@ -13,6 +13,15 @@
 #include <cstdlib>
 #include <cmath>
 
+// Logging: GGML_CUDA_LOG_* is only defined in ggml-cuda.cu (static function).
+// This header may be included from other .cu/.cuh files, so use fprintf as fallback.
+#ifndef GGML_CUDA_LOG_INFO
+#  include <cstdio>
+#  define GGML_CUDA_LOG_INFO(fmt, ...)  fprintf(stderr, "[turbo-quant] " fmt, ##__VA_ARGS__)
+#  define GGML_CUDA_LOG_WARN(fmt, ...)  fprintf(stderr, "[turbo-quant WARN] " fmt, ##__VA_ARGS__)
+#  define GGML_CUDA_LOG_ERROR(fmt, ...) fprintf(stderr, "[turbo-quant ERROR] " fmt, ##__VA_ARGS__)
+#endif
+
 // ---- Quantization ratios for dequantize_block template ----
 #define QR_TURBO3 1  // Each dequantize call produces 2 consecutive elements (like q8_0)
 #define QR_TURBO2 1  // Each dequantize call produces 2 consecutive elements (like q8_0)
@@ -181,7 +190,7 @@ static void turbo_innerq_init(void) {
     cudaMemcpyToSymbol(d_innerq_active, &zero, sizeof(int));
     cudaMemcpyToSymbol(d_innerq_calibrating, &one, sizeof(int));
 
-    GGML_LOG_INFO("%s: InnerQ calibration started (target=%d tokens, strength=%.2f)\n",
+    GGML_CUDA_LOG_INFO("%s: InnerQ calibration started (target=%d tokens, strength=%.2f)\n",
                    __func__, innerq_target_tokens, innerq_strength);
 }
 
@@ -194,7 +203,7 @@ static void turbo_innerq_finalize(int group_size) {
     cudaMemcpyFromSymbol(&count, d_innerq_count, sizeof(int));
 
     if (count <= 0) {
-        GGML_LOG_WARN("%s: InnerQ calibration got 0 tokens, disabling\n", __func__);
+        GGML_CUDA_LOG_WARN("%s: InnerQ calibration got 0 tokens, disabling\n", __func__);
         innerq_enabled = 0;
         int zero = 0;
         cudaMemcpyToSymbol(d_innerq_calibrating, &zero, sizeof(int));
@@ -227,7 +236,7 @@ static void turbo_innerq_finalize(int group_size) {
 
     // Auto-skip if max channel ratio < 1.2 (already balanced)
     if (max_ratio < 1.2f && min_ratio > (1.0f / 1.2f)) {
-        GGML_LOG_INFO("%s: InnerQ auto-disabled (channels already balanced, max_ratio=%.3f)\n",
+        GGML_CUDA_LOG_INFO("%s: InnerQ auto-disabled (channels already balanced, max_ratio=%.3f)\n",
                        __func__, max_ratio);
         innerq_enabled = 0;
         int zero = 0;
@@ -248,7 +257,7 @@ static void turbo_innerq_finalize(int group_size) {
     // Publish scale_inv to shared host state for cross-TU tensor update
     turbo_innerq_publish(scale_inv, group_size);
 
-    GGML_LOG_INFO("%s: InnerQ finalized (%d tokens, max_ratio=%.3f, min_ratio=%.3f)\n",
+    GGML_CUDA_LOG_INFO("%s: InnerQ finalized (%d tokens, max_ratio=%.3f, min_ratio=%.3f)\n",
                    __func__, count, max_ratio, min_ratio);
 }
 
@@ -268,7 +277,7 @@ static void turbo_innerq_check_finalize(int group_size, int64_t ne00) {
     const bool multi_group_per_head = (group_size < 128);  // 64-group → head_dim > 128, multi-group
     if (multi_group_per_head) {
         if (innerq_enabled == 1) {
-            GGML_LOG_WARN("%s: InnerQ disabled (ne00=%lld != group_size=%d, multi-group heads)\n",
+            GGML_CUDA_LOG_WARN("%s: InnerQ disabled (ne00=%lld != group_size=%d, multi-group heads)\n",
                            __func__, (long long)ne00, group_size);
             innerq_enabled = 0;
             int zero = 0;
