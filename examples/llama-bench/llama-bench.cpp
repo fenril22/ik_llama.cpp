@@ -429,6 +429,15 @@ static ggml_type ggml_type_from_name(const std::string & s) {
     if (s == "iso4" || s == "iso4_0") {
         return GGML_TYPE_ISO4_0;
     }
+    if (s == "turbo3" || s == "turbo3_0") {
+        return GGML_TYPE_TURBO3_0;
+    }
+    if (s == "turbo4" || s == "turbo4_0") {
+        return GGML_TYPE_TURBO4_0;
+    }
+    if (s == "turbo2" || s == "turbo2_0") {
+        return GGML_TYPE_TURBO2_0;
+    }
 
     return GGML_TYPE_COUNT;
 }
