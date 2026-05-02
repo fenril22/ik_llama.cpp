@@ -284,6 +284,87 @@ static __global__ void k_cpy_f32_turbo2(
     }
 }
 
+// ── Decode: turbo3/4/2 → F16 ─────────────────────────────────────────
+//
+// Used by ggml_get_to_fp16_cuda() so MMA/WMMA kernels can dequantize
+// turbo KV cache to F16 before running tensor-core attention.
+// One thread per element; each thread reads one quantised value and writes
+// one half.  Parallelism: (total_elements / block_size) thread-blocks.
+
+static __global__ void k_dequant_turbo3_f16(
+        const block_turbo3_0 * __restrict__ src,
+        half                 * __restrict__ dst,
+        int64_t n_blocks) {
+
+    const int64_t ib = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks * QK_TURBO3) return;
+
+    const int64_t blk = ib / QK_TURBO3;
+    const int      j  = (int)(ib % QK_TURBO3);
+    const float norm = __half2float(src[blk].norm);
+    dst[ib] = __float2half(turbo3_dequant_element(&src[blk], j, norm));
+}
+
+static __global__ void k_dequant_turbo4_f16(
+        const block_turbo4_0 * __restrict__ src,
+        half                 * __restrict__ dst,
+        int64_t n_blocks) {
+
+    const int64_t ib = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks * QK_TURBO4) return;
+
+    const int64_t blk = ib / QK_TURBO4;
+    const int      j  = (int)(ib % QK_TURBO4);
+    const float norm = __half2float(src[blk].norm);
+    dst[ib] = __float2half(turbo4_dequant_element(&src[blk], j, norm));
+}
+
+static __global__ void k_dequant_turbo2_f16(
+        const block_turbo2_0 * __restrict__ src,
+        half                 * __restrict__ dst,
+        int64_t n_blocks) {
+
+    const int64_t ib = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (ib >= n_blocks * QK_TURBO2) return;
+
+    const int64_t blk = ib / QK_TURBO2;
+    const int      j  = (int)(ib % QK_TURBO2);
+    const float norm = __half2float(src[blk].norm);
+    dst[ib] = __float2half(turbo2_dequant_element(&src[blk], j, norm));
+}
+
+// Host dispatch — signature matches to_fp16_cuda_t
+
+void dequantize_row_turbo3_0_cuda(const void * __restrict__ x, half * __restrict__ y,
+                                   int64_t nrows, int64_t n_per_row, cudaStream_t stream) {
+    const int64_t nelems   = nrows * n_per_row;
+    const int64_t n_blocks = nelems / QK_TURBO3;
+    if (n_blocks == 0) return;
+    constexpr int threads = 256;
+    const int blocks = (int)((nelems + threads - 1) / threads);
+    k_dequant_turbo3_f16<<<blocks, threads, 0, stream>>>((const block_turbo3_0 *)x, y, n_blocks);
+}
+
+void dequantize_row_turbo4_0_cuda(const void * __restrict__ x, half * __restrict__ y,
+                                   int64_t nrows, int64_t n_per_row, cudaStream_t stream) {
+    const int64_t nelems   = nrows * n_per_row;
+    const int64_t n_blocks = nelems / QK_TURBO4;
+    if (n_blocks == 0) return;
+    constexpr int threads = 256;
+    const int blocks = (int)((nelems + threads - 1) / threads);
+    k_dequant_turbo4_f16<<<blocks, threads, 0, stream>>>((const block_turbo4_0 *)x, y, n_blocks);
+}
+
+void dequantize_row_turbo2_0_cuda(const void * __restrict__ x, half * __restrict__ y,
+                                   int64_t nrows, int64_t n_per_row, cudaStream_t stream) {
+    const int64_t nelems   = nrows * n_per_row;
+    const int64_t n_blocks = nelems / QK_TURBO2;
+    if (n_blocks == 0) return;
+    constexpr int threads = 256;
+    const int blocks = (int)((nelems + threads - 1) / threads);
+    k_dequant_turbo2_f16<<<blocks, threads, 0, stream>>>((const block_turbo2_0 *)x, y, n_blocks);
+}
+
 // ── Public dispatch functions ─────────────────────────────────────────
 
 void ggml_cuda_cpy_f16_turbo3(const char * cx, char * cdst, const int ne, cudaStream_t stream) {

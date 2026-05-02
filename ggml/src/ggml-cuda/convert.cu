@@ -8,6 +8,7 @@
 #include "convert.cuh"
 #include "dequantize.cuh"
 #include "cpy-planar-iso.cuh"
+#include "cpy-turbo.cuh"
 
 #define CUDA_Q8_0_NE_ALIGN 2048
 
@@ -2012,6 +2013,12 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return dequantize_row_iso3_0_cuda;
         case GGML_TYPE_ISO4_0:
             return dequantize_row_iso4_0_cuda;
+        case GGML_TYPE_TURBO3_0:
+            return dequantize_row_turbo3_0_cuda;
+        case GGML_TYPE_TURBO4_0:
+            return dequantize_row_turbo4_0_cuda;
+        case GGML_TYPE_TURBO2_0:
+            return dequantize_row_turbo2_0_cuda;
         case GGML_TYPE_IQ2_K_R4:
             return dequantize_row_iq2_k_r4_cuda;
         case GGML_TYPE_IQ3_K_R4:
