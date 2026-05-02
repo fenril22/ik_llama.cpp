@@ -1,29 +1,26 @@
-// ── InnerQ state definitions ──────────────────────────────────────────────────
-// Device-side variables are declared `extern __device__` in turbo-quant.cuh and
-// must be defined exactly once.  Host-side variables/functions are also defined
-// here so that they are not multiply-defined when turbo-quant.cuh is included
-// from other translation units (cpy-turbo.cu, set-rows.cu, fattn instances).
+// ── InnerQ device/host state — defined in this TU only ───────────────────────
+// NVCC treats `extern __device__` in headers as per-TU static definitions
+// (warning #20044), so we do NOT declare these in any shared header.
+// turbo-wht.cu is the sole owner; other TUs (cpy-turbo.cu, set-rows.cu,
+// fattn instances) never reference these variables directly.
 
 #include "turbo-innerq.cuh"  // INNERQ_MAX_CHANNELS
-
-// Device state (one definition across the entire CUDA binary)
-__device__ float d_innerq_scale[INNERQ_MAX_CHANNELS];
-__device__ float d_innerq_scale_inv[INNERQ_MAX_CHANNELS];
-__device__ float d_innerq_sq_accum[INNERQ_MAX_CHANNELS];
-__device__ int   d_innerq_count;
-__device__ int   d_innerq_active;
-__device__ int   d_innerq_calibrating;
-
-// Host state
-int   innerq_enabled       = 0;
-int   innerq_target_tokens = 0;
-float innerq_strength      = 0.5f;
-bool  innerq_initialized   = false;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Now pull in the rest of the turbo headers (they will see the extern decls).
 #include "turbo-quant.cuh"
 #include "turbo-wht.cuh"
+
+// Device state
+static __device__ float d_innerq_scale[INNERQ_MAX_CHANNELS];
+static __device__ float d_innerq_scale_inv[INNERQ_MAX_CHANNELS];
+static __device__ float d_innerq_sq_accum[INNERQ_MAX_CHANNELS];
+static __device__ int   d_innerq_count;
+static __device__ int   d_innerq_active;
+static __device__ int   d_innerq_calibrating;
+
+// Host state (file-scope, used only by functions in this file)
+static int   innerq_enabled       = 0;
+static int   innerq_target_tokens = 0;
+static float innerq_strength      = 0.5f;
+static bool  innerq_initialized   = false;
 
 // ── InnerQ host function bodies ───────────────────────────────────────────────
 // These are declared in turbo-quant.cuh (non-static) and defined here.

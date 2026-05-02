@@ -149,24 +149,12 @@ static __device__ __forceinline__ void turbo_rotate_forward_64(float * x) {
 // Equalizes K channel variances before WHT rotation to reduce quantization error.
 // Enabled via TURBO_INNERQ=N env var (N = calibration token count).
 // Math: <Q/s, s*K> = <Q, K> preserves dot products.
-// INNERQ_MAX_CHANNELS is defined in turbo-innerq.cuh
 //
-// Device variables are defined once in turbo-wht.cu to avoid multiple-definition
-// errors when this header is included from multiple translation units.
-
-extern __device__ float d_innerq_scale[INNERQ_MAX_CHANNELS];
-extern __device__ float d_innerq_scale_inv[INNERQ_MAX_CHANNELS];
-extern __device__ float d_innerq_sq_accum[INNERQ_MAX_CHANNELS];
-extern __device__ int   d_innerq_count;
-extern __device__ int   d_innerq_active;
-extern __device__ int   d_innerq_calibrating;
-
-// Host-side InnerQ state — defined once in turbo-wht.cu
-extern int   innerq_enabled;
-extern int   innerq_target_tokens;
-extern float innerq_strength;
-extern bool  innerq_initialized;
-
+// Device-side variables and host-side state/functions are all internal to
+// turbo-wht.cu — NOT declared here, to avoid NVCC treating extern __device__
+// as a per-TU static definition (warning #20044 / multiple-definition segfault).
+//
+// Only the public host API is declared here so other TUs can call it.
 // Host-side InnerQ functions — defined once in turbo-wht.cu
 void turbo_innerq_init(void);
 void turbo_innerq_finalize(int group_size);
