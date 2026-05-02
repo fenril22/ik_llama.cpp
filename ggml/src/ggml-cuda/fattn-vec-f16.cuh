@@ -53,7 +53,12 @@ static __global__ void flash_attn_vec_ext_f16(
     //In this kernel Q, K, V are matrices while i, j, k are matrix indices.
 
     constexpr vec_dot_KQ_f16_t vec_dot_KQ = get_vec_dot_KQ_f16<Dk>(type_K);
-    constexpr bool Q_q8_1 = type_K != GGML_TYPE_F16;
+    // TurboQuant K types use a custom dot product that reads Q as half2 pairs (Q_h2).
+    // Using q8_1 quantized Q would leave Q_h2 uninitialised — use the half2 path instead.
+    constexpr bool Q_q8_1 = type_K != GGML_TYPE_F16 &&
+                             type_K != GGML_TYPE_TURBO3_0 &&
+                             type_K != GGML_TYPE_TURBO4_0 &&
+                             type_K != GGML_TYPE_TURBO2_0;
     constexpr dequantize_1_f16_t dequantize_1_v = get_dequantize_1_f16(type_V);
 
     const int ic0 = blockIdx.x * ncols; // Index of the Q/QKV column to work on.

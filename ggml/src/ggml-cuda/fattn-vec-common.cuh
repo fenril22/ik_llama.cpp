@@ -710,7 +710,9 @@ static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo3_0(
     const block_turbo3_0 * K = (const block_turbo3_0 *) K_c;
     GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
 
-    const float2 * Q_f2 = (const float2 *) Q_v;
+    // Q_v is Q_h2[j]: half2[Dk/(2*WARP_SIZE)], each half2 holds two scaled Q values.
+    // Must cast to half2* (not float2*) to correctly read paired Q elements.
+    const half2 * Q_h2 = (const half2 *) Q_v;
     float sum = 0.0f;
 
 #pragma unroll
@@ -719,8 +721,9 @@ static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo3_0(
         const int elem0 = k_KQ * 2;
         const int ib = elem0 / QK_TURBO3;
         const float norm = __half2float(K[ib].norm);
-        sum += turbo3_dequant_element(&K[ib], elem0 % QK_TURBO3,     norm) * Q_f2[k_KQ_0/WARP_SIZE].x;
-        sum += turbo3_dequant_element(&K[ib], elem0 % QK_TURBO3 + 1, norm) * Q_f2[k_KQ_0/WARP_SIZE].y;
+        const half2 qval = Q_h2[k_KQ_0 / WARP_SIZE];
+        sum += turbo3_dequant_element(&K[ib], elem0 % QK_TURBO3,     norm) * __low2float(qval);
+        sum += turbo3_dequant_element(&K[ib], elem0 % QK_TURBO3 + 1, norm) * __high2float(qval);
     }
 
     return (T)sum;
@@ -733,7 +736,7 @@ static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo4_0(
     const block_turbo4_0 * K = (const block_turbo4_0 *) K_c;
     GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
 
-    const float2 * Q_f2 = (const float2 *) Q_v;
+    const half2 * Q_h2 = (const half2 *) Q_v;
     float sum = 0.0f;
 
 #pragma unroll
@@ -742,8 +745,9 @@ static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo4_0(
         const int elem0 = k_KQ * 2;
         const int ib = elem0 / QK_TURBO4;
         const float norm = __half2float(K[ib].norm);
-        sum += turbo4_dequant_element(&K[ib], elem0 % QK_TURBO4,     norm) * Q_f2[k_KQ_0/WARP_SIZE].x;
-        sum += turbo4_dequant_element(&K[ib], elem0 % QK_TURBO4 + 1, norm) * Q_f2[k_KQ_0/WARP_SIZE].y;
+        const half2 qval = Q_h2[k_KQ_0 / WARP_SIZE];
+        sum += turbo4_dequant_element(&K[ib], elem0 % QK_TURBO4,     norm) * __low2float(qval);
+        sum += turbo4_dequant_element(&K[ib], elem0 % QK_TURBO4 + 1, norm) * __high2float(qval);
     }
 
     return (T)sum;
@@ -756,7 +760,7 @@ static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo2_0(
     const block_turbo2_0 * K = (const block_turbo2_0 *) K_c;
     GGML_UNUSED(Q_q8); GGML_UNUSED(Q_ds_v);
 
-    const float2 * Q_f2 = (const float2 *) Q_v;
+    const half2 * Q_h2 = (const half2 *) Q_v;
     float sum = 0.0f;
 
 #pragma unroll
@@ -765,8 +769,9 @@ static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo2_0(
         const int elem0 = k_KQ * 2;
         const int ib = elem0 / QK_TURBO2;
         const float norm = __half2float(K[ib].norm);
-        sum += turbo2_dequant_element(&K[ib], elem0 % QK_TURBO2,     norm) * Q_f2[k_KQ_0/WARP_SIZE].x;
-        sum += turbo2_dequant_element(&K[ib], elem0 % QK_TURBO2 + 1, norm) * Q_f2[k_KQ_0/WARP_SIZE].y;
+        const half2 qval = Q_h2[k_KQ_0 / WARP_SIZE];
+        sum += turbo2_dequant_element(&K[ib], elem0 % QK_TURBO2,     norm) * __low2float(qval);
+        sum += turbo2_dequant_element(&K[ib], elem0 % QK_TURBO2 + 1, norm) * __high2float(qval);
     }
 
     return (T)sum;
