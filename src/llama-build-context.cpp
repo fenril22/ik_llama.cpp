@@ -1622,6 +1622,7 @@ static ggml_tensor * llm_build_kqv(
             cur = ggml_hadamard(ctx, cur, n_embd_head_v);
             cb(cur, "fa_h", il);
         } else if (v_cache->type == GGML_TYPE_TURBO3_0 || v_cache->type == GGML_TYPE_TURBO4_0 || v_cache->type == GGML_TYPE_TURBO2_0) {
+            if (cur->type != GGML_TYPE_F32) cur = ggml_cast(ctx, cur, GGML_TYPE_F32);
             cur = ggml_turbo_wht(ctx, cur, 1, 0, nullptr); // inverse WHT
             cb(cur, "fa_turbo_iwht", il);
         }
@@ -1796,9 +1797,12 @@ ggml_tensor * llm_build_context::llm_build_kv(
         }
         cb(q_cur, "Qcur_hadamard", il);
     } else if (turbo_k) {
-        // TurboQuant: apply WHT (forward, direction=0) to Q and K before KV store
+        // TurboQuant: apply WHT (forward, direction=0) to Q and K before KV store.
+        // ggml_turbo_wht requires F32; cast if needed (e.g. F16 in some model paths).
+        if (q_cur->type != GGML_TYPE_F32) q_cur = ggml_cast(ctx, q_cur, GGML_TYPE_F32);
         q_cur = ggml_turbo_wht(ctx, q_cur, 0, 0, nullptr);
         if (k_cur) {
+            if (k_cur->type != GGML_TYPE_F32) k_cur = ggml_cast(ctx, k_cur, GGML_TYPE_F32);
             k_cur = ggml_turbo_wht(ctx, k_cur, 0, 0, nullptr);
             cb(k_cur, "Kcur_turbo_wht", il);
         }
@@ -1807,6 +1811,7 @@ ggml_tensor * llm_build_context::llm_build_kv(
     if (cparams.v_cache_hadamard && v_cur) {
         v_cur = ggml_hadamard(ctx, v_cur, hparams.n_embd_head_v(il));
     } else if (turbo_v && v_cur) {
+        if (v_cur->type != GGML_TYPE_F32) v_cur = ggml_cast(ctx, v_cur, GGML_TYPE_F32);
         v_cur = ggml_turbo_wht(ctx, v_cur, 0, 0, nullptr);
     }
 
@@ -2634,6 +2639,8 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                     cb(Qcur, "Qcur_hadamard", il_cb);
                     cb(Kcur, "Kcur_hadamard", il_cb);
                 } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                    if (Qcur->type != GGML_TYPE_F32) Qcur = ggml_cast(ctx0, Qcur, GGML_TYPE_F32);
+                    if (Kcur->type != GGML_TYPE_F32) Kcur = ggml_cast(ctx0, Kcur, GGML_TYPE_F32);
                     Qcur = ggml_turbo_wht(ctx0, Qcur, 0, 0, nullptr);
                     Kcur = ggml_turbo_wht(ctx0, Kcur, 0, 0, nullptr);
                     cb(Qcur, "Qcur_turbo_wht", il_cb);
@@ -2643,6 +2650,7 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                     Vcur = ggml_hadamard(ctx0, Vcur, hparams.n_embd_head_v(il));
                     cb(Vcur, "Vcur_hadamard", il_cb);
                 } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                    if (Vcur->type != GGML_TYPE_F32) Vcur = ggml_cast(ctx0, Vcur, GGML_TYPE_F32);
                     Vcur = ggml_turbo_wht(ctx0, Vcur, 0, 0, nullptr);
                     cb(Vcur, "Vcur_turbo_wht", il_cb);
                 }
@@ -2723,6 +2731,7 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                     cur = ggml_hadamard(ctx0, cur, n_embd_head_v);
                     cb(cur, "flash_attn_h", il_cb);
                 } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                    if (cur->type != GGML_TYPE_F32) cur = ggml_cast(ctx0, cur, GGML_TYPE_F32);
                     cur = ggml_turbo_wht(ctx0, cur, 1, 0, nullptr); // inverse WHT
                     cb(cur, "flash_attn_turbo_iwht", il_cb);
                 }
