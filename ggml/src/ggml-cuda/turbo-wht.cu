@@ -1,5 +1,152 @@
+// ── InnerQ state definitions ──────────────────────────────────────────────────
+// Device-side variables are declared `extern __device__` in turbo-quant.cuh and
+// must be defined exactly once.  Host-side variables/functions are also defined
+// here so that they are not multiply-defined when turbo-quant.cuh is included
+// from other translation units (cpy-turbo.cu, set-rows.cu, fattn instances).
+
+#include "turbo-innerq.cuh"  // INNERQ_MAX_CHANNELS
+
+// Device state (one definition across the entire CUDA binary)
+__device__ float d_innerq_scale[INNERQ_MAX_CHANNELS];
+__device__ float d_innerq_scale_inv[INNERQ_MAX_CHANNELS];
+__device__ float d_innerq_sq_accum[INNERQ_MAX_CHANNELS];
+__device__ int   d_innerq_count;
+__device__ int   d_innerq_active;
+__device__ int   d_innerq_calibrating;
+
+// Host state
+int   innerq_enabled       = 0;
+int   innerq_target_tokens = 0;
+float innerq_strength      = 0.5f;
+bool  innerq_initialized   = false;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Now pull in the rest of the turbo headers (they will see the extern decls).
 #include "turbo-quant.cuh"
 #include "turbo-wht.cuh"
+
+// ── InnerQ host function bodies ───────────────────────────────────────────────
+// These are declared in turbo-quant.cuh (non-static) and defined here.
+
+#include <cstdlib>  // getenv / atoi / atof
+#include <cmath>    // sqrtf / powf
+
+void turbo_innerq_init(void) {
+    if (innerq_initialized) return;
+    innerq_initialized = true;
+
+    const char * env = getenv("TURBO_INNERQ");
+    if (!env || atoi(env) <= 0) {
+        innerq_enabled = 0;
+        return;
+    }
+    innerq_target_tokens = atoi(env);
+    innerq_enabled = 1;  // calibrating
+
+    const char * env_str = getenv("TURBO_INNERQ_STRENGTH");
+    if (env_str) innerq_strength = atof(env_str);
+    if (innerq_strength <= 0.0f || innerq_strength > 1.0f) innerq_strength = 0.5f;
+
+    float zeros[INNERQ_MAX_CHANNELS] = {};
+    int zero = 0, one = 1;
+    cudaMemcpyToSymbol(d_innerq_sq_accum, zeros, sizeof(zeros));
+    cudaMemcpyToSymbol(d_innerq_count, &zero, sizeof(int));
+    cudaMemcpyToSymbol(d_innerq_active, &zero, sizeof(int));
+    cudaMemcpyToSymbol(d_innerq_calibrating, &one, sizeof(int));
+
+    fprintf(stderr, "[turbo-quant] %s: InnerQ calibration started (target=%d tokens, strength=%.2f)\n",
+            __func__, innerq_target_tokens, innerq_strength);
+}
+
+void turbo_innerq_finalize(int group_size) {
+    float sq_accum[INNERQ_MAX_CHANNELS];
+    int count = 0;
+    cudaMemcpyFromSymbol(sq_accum, d_innerq_sq_accum, group_size * sizeof(float));
+    cudaMemcpyFromSymbol(&count, d_innerq_count, sizeof(int));
+
+    if (count <= 0) {
+        fprintf(stderr, "[turbo-quant WARN] %s: InnerQ calibration got 0 tokens, disabling\n", __func__);
+        innerq_enabled = 0;
+        int zero = 0;
+        cudaMemcpyToSymbol(d_innerq_calibrating, &zero, sizeof(int));
+        return;
+    }
+
+    float rms[INNERQ_MAX_CHANNELS];
+    float mean_rms = 0.0f;
+    float max_ratio = 0.0f, min_ratio = 1e30f;
+    for (int i = 0; i < group_size; i++) {
+        rms[i] = sqrtf(sq_accum[i] / (float)count);
+        mean_rms += rms[i];
+    }
+    mean_rms /= (float)group_size;
+
+    float scale[INNERQ_MAX_CHANNELS];
+    float scale_inv[INNERQ_MAX_CHANNELS];
+    for (int i = 0; i < group_size; i++) {
+        float ratio = (rms[i] > 1e-10f) ? (mean_rms / rms[i]) : 1.0f;
+        float s = powf(ratio, innerq_strength);
+        if (s < 0.5f) s = 0.5f;
+        if (s > 2.0f) s = 2.0f;
+        scale[i] = s;
+        scale_inv[i] = 1.0f / s;
+        if (ratio > max_ratio) max_ratio = ratio;
+        if (ratio < min_ratio) min_ratio = ratio;
+    }
+
+    if (max_ratio < 1.2f && min_ratio > (1.0f / 1.2f)) {
+        fprintf(stderr, "[turbo-quant] %s: InnerQ auto-disabled (channels already balanced, max_ratio=%.3f)\n",
+                __func__, max_ratio);
+        innerq_enabled = 0;
+        int zero = 0;
+        cudaMemcpyToSymbol(d_innerq_calibrating, &zero, sizeof(int));
+        return;
+    }
+
+    int zero = 0, one = 1;
+    cudaMemcpyToSymbol(d_innerq_calibrating, &zero, sizeof(int));
+    cudaMemcpyToSymbol(d_innerq_scale, scale, group_size * sizeof(float));
+    cudaMemcpyToSymbol(d_innerq_scale_inv, scale_inv, group_size * sizeof(float));
+    cudaDeviceSynchronize();
+    cudaMemcpyToSymbol(d_innerq_active, &one, sizeof(int));
+
+    innerq_enabled = 2;
+    turbo_innerq_publish(scale_inv, group_size);
+
+    fprintf(stderr, "[turbo-quant] %s: InnerQ finalized (%d tokens, max_ratio=%.3f, min_ratio=%.3f)\n",
+            __func__, count, max_ratio, min_ratio);
+}
+
+void turbo_innerq_check_finalize(int group_size, int64_t ne00) {
+    if (!innerq_initialized) {
+        turbo_innerq_init();
+    }
+    if (innerq_enabled == 0) return;
+
+    const bool multi_group_per_head = (group_size < 128);
+    if (multi_group_per_head) {
+        if (innerq_enabled == 1) {
+            fprintf(stderr, "[turbo-quant WARN] %s: InnerQ disabled (ne00=%lld != group_size=%d, multi-group heads)\n",
+                    __func__, (long long)ne00, group_size);
+            innerq_enabled = 0;
+            int zero = 0;
+            cudaMemcpyToSymbol(d_innerq_calibrating, &zero, sizeof(int));
+        }
+        return;
+    }
+
+    if (innerq_enabled == 1) {
+        int count = 0;
+        cudaMemcpyFromSymbol(&count, d_innerq_count, sizeof(int));
+        if (count >= innerq_target_tokens) {
+            turbo_innerq_finalize(group_size);
+        }
+    }
+}
+
+bool turbo_innerq_is_active(void) {
+    return innerq_enabled == 2;
+}
 
 // ─── CUDA kernel ──────────────────────────────────────────────────────────────
 //
