@@ -16,14 +16,7 @@
 #include "turbo-quant.cuh"
 
 // ── Helpers ───────────────────────────────────────────────────────────
-
-static __device__ __forceinline__ float warp_reduce_sum(float v) {
-#pragma unroll
-    for (int offset = WARP_SIZE / 2; offset > 0; offset >>= 1) {
-        v += __shfl_xor_sync(0xffffffff, v, offset);
-    }
-    return v;
-}
+// Note: warp_reduce_sum(float) is defined in common.cuh
 
 template <int N_WARPS>
 static __device__ __forceinline__ float block_reduce_sum(float v, float * smem_accum) {
