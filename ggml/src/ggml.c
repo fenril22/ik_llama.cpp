@@ -24706,6 +24706,10 @@ static int ggml_compute_forward(struct ggml_compute_params * params, struct ggml
                 ggml_compute_forward_cross_entropy_loss_back(params, tensor);
             }
             break;
+        case GGML_OP_TURBO_WHT:
+            {
+                // GPU-only op; CPU path is a no-op (handled by CUDA backend)
+            } break;
         case GGML_OP_NONE:
             {
                 // nop
@@ -25859,6 +25863,10 @@ static void ggml_compute_backward(struct ggml_context * ctx, struct ggml_tensor 
             {
                 GGML_ABORT("fatal error"); // not supported
             }
+        case GGML_OP_TURBO_WHT:
+            {
+                // no backward pass for inference-only op
+            } break;
         case GGML_OP_NONE:
             {
                 // nop
@@ -26517,6 +26525,10 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_NONE:
             {
                 n_tasks = 1;
+            } break;
+        case GGML_OP_TURBO_WHT:
+            {
+                n_tasks = n_threads;
             } break;
         case GGML_OP_COUNT:
             {
