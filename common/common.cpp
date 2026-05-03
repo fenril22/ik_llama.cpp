@@ -3662,13 +3662,7 @@ struct llama_context_params common_context_params_to_llama(const gpt_params & pa
 
     auto [n_batch, n_ubatch] = get_batch_ubatch(params);
 
-    // If kv_budget is set, limit KV cache allocation to budget size
-    // This reduces VRAM usage, freeing memory for model layers (MoE FFN etc.)
-    if (params.kv_budget > 0 && (params.n_ctx == 0 || params.kv_budget < (int32_t)params.n_ctx)) {
-        cparams.n_ctx         = params.kv_budget;
-    } else {
-        cparams.n_ctx         = params.n_ctx;
-    }
+    cparams.n_ctx             = params.n_ctx;
     cparams.n_seq_max         = params.n_parallel;
     cparams.n_batch           = n_batch;
     cparams.n_ubatch          = n_ubatch;

@@ -277,6 +277,11 @@ KV budget制限でVRAMが531MiB空き、MoE層をGPUに多く載せることで�
 - **KV cacheの穴**: seq_rm後にdefragしないとメモリが断片化。~~必ずセットで実行。~~
   **現状**: defrag+update がhybridモデル+量子化KVでクラッシュするためスキップ中。
   attention maskが穴を自動で-INFにするため動作に問題はないが、メモリ効率は低下。
+- **KVアロケーションとVRAM**: KVバッファはn_ctx分フルアロケートされる。
+  kv_budgetでアロケーション制限するにはpos >= n_ctxのRoPE制約を解決する必要あり（未対応）。
+  現状はprefill中evictionでbudget内に収めるが、VRAM節約にはn_ctx自体を小さくする必要がある。
+- **Prefill中eviction**: `h2o_ensure_budget()`がprefillバッチ前に呼ばれ、KVスロットが足りなければ
+  evictして空きを作る。128kプロンプト→65k budgetで62回eviction発動を実測確認。
 
 ## ハンドオフ情報
 
