@@ -598,7 +598,11 @@ int main(int argc, char ** argv) {
                     h2o.kv_budget         = params.kv_budget;
                     h2o.kv_sink           = params.kv_sink;
                     h2o.kv_evict_interval = params.kv_evict_interval;
-                    h2o_maybe_evict(ctx, h2o, n_past);
+                    int n_evicted = h2o_maybe_evict(ctx, h2o, n_past);
+                    if (n_evicted > 0) {
+                        LOG("h2o: evicted %d KV entries, n_past = %d\n", n_evicted, n_past);
+                        n_past -= n_evicted;
+                    }
                 }
 
                 // infinite text generation via context shifting
