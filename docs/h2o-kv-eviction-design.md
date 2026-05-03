@@ -233,14 +233,50 @@ examples/server/server-context.cpp   — server統合
 | q4_0 + H2O budget=64k | ~360 MiB | +2.5〜3% | ~40 t/s |
 | q4_0 + H2O budget=32k | ~180 MiB | +3〜5% | ~48 t/s |
 
+## 実測ベンチマーク
+
+**条件**: Qwen3.6-35B-A3B IQ3_S, RTX 3070 8GB, n-cpu-moe=30, flash-attn=1, c=2048, n=256
+**H2O設定**: kv-budget=256, kv-sink=32, kv-evict-interval=32
+
+| KV type | H2O | Decode (ms/tok) | Decode (t/s) | Prefill (t/s) |
+|---------|-----|:--:|:--:|:--:|
+| f16 | OFF | 14.92 | 67.04 | 129.5 |
+| f16 | ON | 14.88 | 67.23 | 127.7 |
+| q4_0 | OFF | 15.07 | 66.37 | 121.2 |
+| q4_0 | ON | 15.07 | 66.37 | 123.4 |
+| q4_1 | OFF | 15.04 | 66.51 | 130.5 |
+| q4_1 | ON | 14.94 | 66.92 | 128.1 |
+| turbo3c | OFF | 15.75 | 63.48 | 131.2 |
+| turbo3c | ON | 15.63 | 63.98 | 133.7 |
+
+**結論**: H2Oのスコアリング処理自体のオーバーヘッドは誤差範囲内（< 0.5%）。
+
+### VRAM節約によるMoEオフロード改善（本来の効果）
+
+**条件**: 42kトークンprefill + 256トークン生成, turbo3c KV, c=204800
+
+| 設定 | KV (MiB) | n-cpu-moe | Prefill (t/s) | Decode (t/s) |
+|------|:--:|:--:|:--:|:--:|
+| H2O=OFF | 781 | 35 | 596 | 43.35 |
+| H2O=ON budget=65k | 250 | 30 | 670 (+12%) | 44.67 (+3%) |
+| H2O=ON budget=65k | 250 | 25 | **759 (+27%)** | **46.70 (+8%)** |
+
+KV budget制限でVRAMが531MiB空き、MoE層をGPUに多く載せることで速度が向上。
+`--n-cpu-moe`を35→25に減らせた（=10層分のMoE FFNがGPU実行に移行）。
+
+**長文生成参考値** (turbo3c KV, 128kコンテキスト, H2O=OFF):
+- Prefill: 546 t/s (1.83ms/tok), Decode: 28.1 t/s (35.5ms/tok)
+
 ## 注意事項
 
 - **atomic float max**: CUDAのatomicMaxはint向け。float用には `__float_as_int` +
   `atomicMax` のtrick (正の値のみ正しく動作)。負のスコアには注意が必要。
-- **マルチシーケンス**: 複数シーケンスがKVを共有する場合、evictionは全シーケンスに影響。
-  server modeでは per-sequence evictionが必要。
+- **マルチシーケンス**: ~~複数シーケンスがKVを共有する場合、evictionは全シーケンスに影響。
+  server modeでは per-sequence evictionが必要。~~ **実装済み**: per-sequence eviction対応。
 - **prefill中のeviction**: prefill中はevictionしない（全KVが必要）。decode開始後のみ。
-- **KV cacheの穴**: seq_rm後にdefragしないとメモリが断片化。必ずセットで実行。
+- **KV cacheの穴**: seq_rm後にdefragしないとメモリが断片化。~~必ずセットで実行。~~
+  **現状**: defrag+update がhybridモデル+量子化KVでクラッシュするためスキップ中。
+  attention maskが穴を自動で-INFにするため動作に問題はないが、メモリ効率は低下。
 
 ## ハンドオフ情報
 
