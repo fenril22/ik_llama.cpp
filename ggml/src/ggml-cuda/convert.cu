@@ -2019,6 +2019,8 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return dequantize_row_turbo4_0_cuda;
         case GGML_TYPE_TURBO2_0:
             return dequantize_row_turbo2_0_cuda;
+        case GGML_TYPE_TURBO3C_0:
+            return dequantize_row_turbo3c_0_cuda;
         case GGML_TYPE_IQ2_K_R4:
             return dequantize_row_iq2_k_r4_cuda;
         case GGML_TYPE_IQ3_K_R4:

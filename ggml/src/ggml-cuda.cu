@@ -4593,7 +4593,7 @@ GGML_CALL static bool ggml_backend_cuda_supports_op(ggml_backend_t backend, cons
                        op->type == GGML_TYPE_PLANAR3_0 || op->type == GGML_TYPE_ISO3_0 ||
                        op->type == GGML_TYPE_PLANAR4_0 || op->type == GGML_TYPE_ISO4_0 ||
                        op->type == GGML_TYPE_TURBO3_0  || op->type == GGML_TYPE_TURBO4_0 ||
-                       op->type == GGML_TYPE_TURBO2_0) &&
+                       op->type == GGML_TYPE_TURBO2_0  || op->type == GGML_TYPE_TURBO3C_0) &&
                        op->src[0]->type == GGML_TYPE_F32 &&
                        (op->src[1]->type == GGML_TYPE_I64 || op->src[1]->type == GGML_TYPE_I32);
             } break;
@@ -4655,7 +4655,7 @@ GGML_CALL static bool ggml_backend_cuda_supports_op(ggml_backend_t backend, cons
                     (src1_type == GGML_TYPE_PLANAR3_0 || src1_type == GGML_TYPE_ISO3_0 ||
                      src1_type == GGML_TYPE_PLANAR4_0 || src1_type == GGML_TYPE_ISO4_0 ||
                      src1_type == GGML_TYPE_TURBO3_0  || src1_type == GGML_TYPE_TURBO4_0 ||
-                     src1_type == GGML_TYPE_TURBO2_0)) {
+                     src1_type == GGML_TYPE_TURBO2_0  || src1_type == GGML_TYPE_TURBO3C_0)) {
                     return true;
                 }
                 return false;

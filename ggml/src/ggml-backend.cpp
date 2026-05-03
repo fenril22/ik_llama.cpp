@@ -904,7 +904,11 @@ GGML_CALL static bool ggml_backend_cpu_supports_op(ggml_backend_t backend, const
                 op->type != GGML_TYPE_IQ2_XXS &&
                 op->type != GGML_TYPE_IQ2_XS  &&
                 op->type != GGML_TYPE_IQ1_S   &&
-                op->type != GGML_TYPE_IQ1_M; // missing type_traits.from_float
+                op->type != GGML_TYPE_IQ1_M && // missing type_traits.from_float
+                op->type != GGML_TYPE_TURBO3_0 &&
+                op->type != GGML_TYPE_TURBO4_0 &&
+                op->type != GGML_TYPE_TURBO2_0 &&
+                op->type != GGML_TYPE_TURBO3C_0; // turbo types require GPU quantization
         case GGML_OP_MUL_MAT:
             return true;
             //return op->src[1]->type == GGML_TYPE_F32 || op->src[1]->type == ggml_internal_get_type_traits(op->src[0]->type).vec_dot_type;

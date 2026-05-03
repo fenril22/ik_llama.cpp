@@ -676,6 +676,10 @@ void ggml_cuda_cpy(ggml_backend_cuda_context & ctx, const ggml_tensor * src0, gg
         ggml_cuda_cpy_f32_turbo4(src0_ddc, src1_ddc, ne, main_stream);
     } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_TURBO2_0) {
         ggml_cuda_cpy_f32_turbo2(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F16 && src1->type == GGML_TYPE_TURBO3C_0) {
+        ggml_cuda_cpy_f16_turbo3c(src0_ddc, src1_ddc, ne, main_stream);
+    } else if (src0->type == GGML_TYPE_F32 && src1->type == GGML_TYPE_TURBO3C_0) {
+        ggml_cuda_cpy_f32_turbo3c(src0_ddc, src1_ddc, ne, main_stream);
     } else {
         GGML_ABORT("%s: unsupported type combination (%s to %s)\n", __func__,
                 ggml_type_name(src0->type), ggml_type_name(src1->type));
@@ -776,7 +780,7 @@ void* ggml_cuda_cpy_fn(const ggml_tensor * src0, ggml_tensor * src1) {
                (src1->type == GGML_TYPE_PLANAR3_0 || src1->type == GGML_TYPE_ISO3_0 ||
                 src1->type == GGML_TYPE_PLANAR4_0 || src1->type == GGML_TYPE_ISO4_0 ||
                 src1->type == GGML_TYPE_TURBO3_0  || src1->type == GGML_TYPE_TURBO4_0 ||
-                src1->type == GGML_TYPE_TURBO2_0)) {
+                src1->type == GGML_TYPE_TURBO2_0  || src1->type == GGML_TYPE_TURBO3C_0)) {
         // planar/iso/turbo quantization kernels use stream-based dispatch (not CUDA graph compatible)
         return nullptr;
     } else {

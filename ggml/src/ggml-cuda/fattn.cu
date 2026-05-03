@@ -61,11 +61,13 @@ void ggml_cuda_flash_attn_ext(ggml_backend_cuda_context & ctx, ggml_tensor * dst
     // For prefill (ne[1]>1) fall through to MMA, which converts K/V to F16 via
     // dequantize_row_turbo*_cuda (registered in ggml_get_to_fp16_cuda) and then
     // runs tensor-core attention — significantly faster for long prompts.
-    const bool is_turbo_KV = K->type == GGML_TYPE_TURBO3_0 || K->type == GGML_TYPE_TURBO4_0 ||
-                             K->type == GGML_TYPE_TURBO2_0 ||
-                             V->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO4_0 ||
-                             V->type == GGML_TYPE_TURBO2_0;
-    if (is_turbo_KV && Q->ne[1] == 1) {
+    // turbo3c uses MMA even for decode (F16 conversion + TensorCore is faster than DP4A vec).
+    // Other turbo types use fattn-vec-f16 with native dot products.
+    const bool is_turbo_KV_non3c = K->type == GGML_TYPE_TURBO3_0  || K->type == GGML_TYPE_TURBO4_0 ||
+                                   K->type == GGML_TYPE_TURBO2_0  ||
+                                   V->type == GGML_TYPE_TURBO3_0  || V->type == GGML_TYPE_TURBO4_0 ||
+                                   V->type == GGML_TYPE_TURBO2_0;
+    if (is_turbo_KV_non3c && Q->ne[1] == 1) {
         ggml_cuda_flash_attn_ext_vec_f16(ctx, dst);
         return;
     }
@@ -172,18 +174,18 @@ bool ggml_cuda_fattn_is_supported(ggml_backend_cuda_context & ctx, const ggml_te
     const int32_t precision = KQV->op_params[3];
     const int32_t n_swa = KQV->op_params[4];
 
-    // TurboQuant types: decode path (ne[1]==1) uses fattn-vec-f16 (native turbo dot products).
-    // Prefill path falls through to normal MMA/vec dispatch below.
-    const bool is_turbo_KV_s = K->type == GGML_TYPE_TURBO3_0 || K->type == GGML_TYPE_TURBO4_0 ||
-                               K->type == GGML_TYPE_TURBO2_0 ||
-                               V->type == GGML_TYPE_TURBO3_0 || V->type == GGML_TYPE_TURBO4_0 ||
-                               V->type == GGML_TYPE_TURBO2_0;
-    if (is_turbo_KV_s && Q->ne[1] == 1) {
+    // turbo3c uses MMA for both decode and prefill. Other turbo types use fattn-vec-f16 for decode.
+    const bool is_turbo_KV_s_non3c = K->type == GGML_TYPE_TURBO3_0  || K->type == GGML_TYPE_TURBO4_0 ||
+                                     K->type == GGML_TYPE_TURBO2_0  ||
+                                     V->type == GGML_TYPE_TURBO3_0  || V->type == GGML_TYPE_TURBO4_0 ||
+                                     V->type == GGML_TYPE_TURBO2_0;
+    if (is_turbo_KV_s_non3c && Q->ne[1] == 1) {
         return ggml_cuda_fattn_vec_f16_is_supported(ctx, dst);
     }
-    // For prefill with turbo KV: MMA is supported as long as head size is supported.
-    // K/V will be converted to F16 on-the-fly via dequantize_row_turbo*_cuda.
-    if (is_turbo_KV_s) {
+    // For prefill with turbo KV (or turbo3c decode): MMA is supported as long as head size is supported.
+    const bool is_turbo_KV_any = is_turbo_KV_s_non3c ||
+                                  K->type == GGML_TYPE_TURBO3C_0 || V->type == GGML_TYPE_TURBO3C_0;
+    if (is_turbo_KV_any) {
         return Q->ne[0] == 64 || Q->ne[0] == 80 || Q->ne[0] == 96 || Q->ne[0] == 112 ||
                Q->ne[0] == 128 || Q->ne[0] == 192 || Q->ne[0] == 256;
     }

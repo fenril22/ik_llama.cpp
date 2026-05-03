@@ -427,9 +427,10 @@ extern "C" {
         GGML_TYPE_ISO3_0    = 43,  // IsoQuant 3-bit KV cache: quaternion 4D rotation per group + 3-bit Lloyd-Max (2-bit idx + 1-bit sign)
         GGML_TYPE_PLANAR4_0 = 44,  // PlanarQuant 4-bit KV cache: 2D Givens rotation per pair + 4-bit Lloyd-Max nibble packed
         GGML_TYPE_ISO4_0    = 45,  // IsoQuant 4-bit KV cache: quaternion 4D rotation per group + 4-bit Lloyd-Max nibble packed
-        GGML_TYPE_TURBO3_0  = 46,  // TurboQuant 3-bit KV cache: WHT + 3-bit PolarQuant
+        GGML_TYPE_TURBO3_0  = 46,  // TurboQuant 3-bit KV cache: WHT + 3-bit PolarQuant (Lloyd-Max, float LUT)
         GGML_TYPE_TURBO4_0  = 47,  // TurboQuant 4-bit KV cache: WHT + 4-bit PolarQuant
         GGML_TYPE_TURBO2_0  = 48,  // TurboQuant 2-bit KV cache: WHT + 2-bit PolarQuant
+        GGML_TYPE_TURBO3C_0 = 49,  // TurboQuant 3-bit KV cache: WHT + integer-table 3-bit (DP4A compatible)
         GGML_TYPE_Q8_0_X4 = 97,
         GGML_TYPE_Q8_1_X4 = 98,
         GGML_TYPE_Q8_2_X4 = 99,

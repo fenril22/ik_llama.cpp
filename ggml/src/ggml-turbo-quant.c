@@ -2,8 +2,9 @@
  * TurboQuant: KV cache compression via PolarQuant + WHT rotation
  * Based on: arXiv 2504.19874 (ICLR 2026)
  *
- * Implements GGML_TYPE_TURBO2_0 (2-bit), GGML_TYPE_TURBO3_0 (3-bit) and
- * GGML_TYPE_TURBO4_0 (4-bit) for use as --cache-type-k turboN in llama-server.
+ * Implements GGML_TYPE_TURBO2_0 (2-bit), GGML_TYPE_TURBO3_0 (3-bit),
+ * GGML_TYPE_TURBO4_0 (4-bit), and GGML_TYPE_TURBO3C_0 (3-bit DP4A)
+ * for use as --cache-type-k turboN in llama-server.
  *
  * CPU quantization pipeline (all variants):
  *   1. Compute L2 norm of the rotation group
@@ -40,6 +41,24 @@ static const float CENTROIDS_3BIT[8] = {
      0.021460f,  0.065717f,  0.117832f,  0.190685f
 };
 
+/* 3C-bit: integer-table [-8,-5,-3,-1,1,3,5,8] * scale, DP4A compatible.
+ * Scale = 0.023568 (least-squares fit to CENTROIDS_3BIT).
+ * Stored as float for CPU dequantize; GPU uses integer DP4A path. */
+static const float CENTROIDS_3CBIT[8] = {
+    -8.0f * 0.023568f, -5.0f * 0.023568f, -3.0f * 0.023568f, -1.0f * 0.023568f,
+     1.0f * 0.023568f,  3.0f * 0.023568f,  5.0f * 0.023568f,  8.0f * 0.023568f
+};
+/* Midpoints for nearest-centroid lookup */
+static const float MID_3CBIT[7] = {
+    (-8.0f - 5.0f) * 0.5f * 0.023568f,  // -6.5 * scale
+    (-5.0f - 3.0f) * 0.5f * 0.023568f,  // -4.0 * scale
+    (-3.0f - 1.0f) * 0.5f * 0.023568f,  // -2.0 * scale
+    0.0f,
+    ( 1.0f + 3.0f) * 0.5f * 0.023568f,  //  2.0 * scale
+    ( 3.0f + 5.0f) * 0.5f * 0.023568f,  //  4.0 * scale
+    ( 5.0f + 8.0f) * 0.5f * 0.023568f,  //  6.5 * scale
+};
+
 /* 4-bit: 16 centroids */
 static const float CENTROIDS_4BIT[16] = {
     -0.173926f, -0.117195f, -0.089527f, -0.068756f,
@@ -65,6 +84,18 @@ static int nearest_centroid_3bit(float val) {
     if (val <  0.043589f) return 4;
     if (val <  0.091775f) return 5;
     if (val <  0.154259f) return 6;
+    return 7;
+}
+
+/* 3C: integer table [-8,-5,-3,-1,1,3,5,8] * 0.023568 */
+static int nearest_centroid_3cbit(float val) {
+    if (val < MID_3CBIT[0]) return 0;
+    if (val < MID_3CBIT[1]) return 1;
+    if (val < MID_3CBIT[2]) return 2;
+    if (val < MID_3CBIT[3]) return 3;
+    if (val < MID_3CBIT[4]) return 4;
+    if (val < MID_3CBIT[5]) return 5;
+    if (val < MID_3CBIT[6]) return 6;
     return 7;
 }
 
@@ -386,6 +417,95 @@ size_t quantize_turbo4_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT d
         quantize_row_turbo4_0_ref(
             src + row * n_per_row,
             (block_turbo4_0 *)((char *)dst + row * row_size),
+            n_per_row
+        );
+    }
+    return nrows * row_size;
+}
+
+/* ---------- TURBO3C_0: 3-bit integer-table quant with WHT (DP4A compatible) ---------- */
+
+void quantize_row_turbo3c_0_ref(const float * GGML_RESTRICT x, block_turbo3c_0 * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_TURBO3C == 0);
+
+    extern int turbo3_cpu_wht_group_size;
+    int group_size = turbo3_cpu_wht_group_size;
+    if (group_size != 64 && group_size != 128) {
+        group_size = (k % 128 == 0) ? 128 : 64;
+    }
+    if (k % group_size != 0) group_size = (group_size == 128) ? 64 : 128;
+    assert(k % group_size == 0);
+
+    const int n_groups = k / group_size;
+    const int blocks_per_group = group_size / QK_TURBO3C;
+
+    for (int g = 0; g < n_groups; g++) {
+        const float * grp_src = x + g * group_size;
+        block_turbo3c_0 * grp_dst = y + g * blocks_per_group;
+
+        float norm_sq = 0.0f;
+        float buf[128];
+        for (int j = 0; j < group_size; j++) {
+            buf[j] = grp_src[j];
+            norm_sq += buf[j] * buf[j];
+        }
+        float grp_norm = sqrtf(norm_sq);
+        float inv_norm = (grp_norm > 1e-10f) ? 1.0f / grp_norm : 0.0f;
+
+        for (int j = 0; j < group_size; j++) buf[j] *= inv_norm;
+
+        turbo_cpu_fwht(buf, group_size);
+
+        float recon_sq = 0.0f;
+        for (int b = 0; b < blocks_per_group; b++) {
+            block_turbo3c_0 * blk = &grp_dst[b];
+            const int off = b * QK_TURBO3C;
+
+            memset(blk->qs,    0, QK_TURBO3C / 4);
+            memset(blk->signs, 0, QK_TURBO3C / 8);
+
+            for (int j = 0; j < QK_TURBO3C; j++) {
+                int idx = nearest_centroid_3cbit(buf[off + j]);
+                blk->qs[j / 4] |= (idx & 0x3) << ((j % 4) * 2);
+                if (idx & 0x4) {
+                    blk->signs[j / 8] |= (1 << (j % 8));
+                }
+                recon_sq += CENTROIDS_3CBIT[idx] * CENTROIDS_3CBIT[idx];
+            }
+        }
+
+        float recon_norm = sqrtf(recon_sq);
+        float corrected = (recon_norm > 1e-10f) ? grp_norm / recon_norm : grp_norm;
+        for (int b = 0; b < blocks_per_group; b++) {
+            grp_dst[b].norm = GGML_FP32_TO_FP16(corrected);
+        }
+    }
+}
+
+void dequantize_row_turbo3c_0(const block_turbo3c_0 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_TURBO3C == 0);
+    const int nb = k / QK_TURBO3C;
+    for (int block = 0; block < nb; block++) {
+        float norm = GGML_FP16_TO_FP32(x[block].norm);
+        for (int j = 0; j < QK_TURBO3C; j++) {
+            uint8_t low2 = (x[block].qs[j / 4] >> ((j % 4) * 2)) & 0x3;
+            uint8_t hi1  = (x[block].signs[j / 8] >> (j % 8)) & 0x1;
+            uint8_t idx  = low2 | (hi1 << 2);
+            y[block * QK_TURBO3C + j] = CENTROIDS_3CBIT[idx] * norm;
+        }
+    }
+}
+
+size_t quantize_turbo3c_0(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+                           int64_t nrows, int64_t n_per_row, const float * imatrix) {
+    GGML_UNUSED(imatrix);
+    assert(n_per_row % QK_TURBO3C == 0);
+
+    size_t row_size = (n_per_row / QK_TURBO3C) * sizeof(block_turbo3c_0);
+    for (int64_t row = 0; row < nrows; row++) {
+        quantize_row_turbo3c_0_ref(
+            src + row * n_per_row,
+            (block_turbo3c_0 *)((char *)dst + row * row_size),
             n_per_row
         );
     }

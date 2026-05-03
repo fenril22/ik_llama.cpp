@@ -1503,6 +1503,15 @@ static const ggml_type_traits_t type_traits[GGML_TYPE_COUNT] = {
         .from_float               = (ggml_from_float_t) quantize_row_turbo2_0_ref,
         .from_float_ref           = (ggml_from_float_t) quantize_row_turbo2_0_ref,
     },
+    [GGML_TYPE_TURBO3C_0] = {
+        .type_name                = "turbo3c",
+        .blck_size                = QK_TURBO3C,
+        .type_size                = sizeof(block_turbo3c_0),
+        .is_quantized             = true,
+        .to_float                 = (ggml_to_float_t) dequantize_row_turbo3c_0,
+        .from_float               = (ggml_from_float_t) quantize_row_turbo3c_0_ref,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_turbo3c_0_ref,
+    },
     [GGML_TYPE_Q8_KV] = {
         .type_name                = "q8_KV",
         .blck_size                = 32,

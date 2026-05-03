@@ -1621,7 +1621,7 @@ static ggml_tensor * llm_build_kqv(
         if (cparams.v_cache_hadamard) {
             cur = ggml_hadamard(ctx, cur, n_embd_head_v);
             cb(cur, "fa_h", il);
-        } else if (v_cache->type == GGML_TYPE_TURBO3_0 || v_cache->type == GGML_TYPE_TURBO4_0 || v_cache->type == GGML_TYPE_TURBO2_0) {
+        } else if (v_cache->type == GGML_TYPE_TURBO3_0 || v_cache->type == GGML_TYPE_TURBO4_0 || v_cache->type == GGML_TYPE_TURBO2_0 || v_cache->type == GGML_TYPE_TURBO3C_0) {
             if (cur->type != GGML_TYPE_F32) cur = ggml_cast(ctx, cur, GGML_TYPE_F32);
             cur = ggml_turbo_wht(ctx, cur, 1, 0, nullptr); // inverse WHT
             cb(cur, "fa_turbo_iwht", il);
@@ -1786,8 +1786,8 @@ ggml_tensor * llm_build_context::llm_build_kv(
     // Check if TurboQuant WHT is needed for K or V cache
     const ggml_type kv_type_k = (kv.k_l[il] != nullptr) ? kv.k_l[il]->type : GGML_TYPE_F16;
     const ggml_type kv_type_v = (kv.v_l[il] != nullptr) ? kv.v_l[il]->type : GGML_TYPE_F16;
-    const bool turbo_k = (kv_type_k == GGML_TYPE_TURBO3_0 || kv_type_k == GGML_TYPE_TURBO4_0 || kv_type_k == GGML_TYPE_TURBO2_0);
-    const bool turbo_v = (kv_type_v == GGML_TYPE_TURBO3_0 || kv_type_v == GGML_TYPE_TURBO4_0 || kv_type_v == GGML_TYPE_TURBO2_0);
+    const bool turbo_k = (kv_type_k == GGML_TYPE_TURBO3_0 || kv_type_k == GGML_TYPE_TURBO4_0 || kv_type_k == GGML_TYPE_TURBO2_0 || kv_type_k == GGML_TYPE_TURBO3C_0);
+    const bool turbo_v = (kv_type_v == GGML_TYPE_TURBO3_0 || kv_type_v == GGML_TYPE_TURBO4_0 || kv_type_v == GGML_TYPE_TURBO2_0 || kv_type_v == GGML_TYPE_TURBO3C_0);
 
     if (cparams.k_cache_hadamard) {
         q_cur = ggml_hadamard(ctx, q_cur, hparams.n_embd_head_k(il));
@@ -2638,7 +2638,7 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                     Kcur = ggml_hadamard(ctx0, Kcur, hparams.n_embd_head_k(il));
                     cb(Qcur, "Qcur_hadamard", il_cb);
                     cb(Kcur, "Kcur_hadamard", il_cb);
-                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0 || split_kl->type == GGML_TYPE_TURBO3C_0)) {
                     if (Qcur->type != GGML_TYPE_F32) Qcur = ggml_cast(ctx0, Qcur, GGML_TYPE_F32);
                     if (Kcur->type != GGML_TYPE_F32) Kcur = ggml_cast(ctx0, Kcur, GGML_TYPE_F32);
                     Qcur = ggml_turbo_wht(ctx0, Qcur, 0, 0, nullptr);
@@ -2649,7 +2649,7 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                 if (cparams.v_cache_hadamard) {
                     Vcur = ggml_hadamard(ctx0, Vcur, hparams.n_embd_head_v(il));
                     cb(Vcur, "Vcur_hadamard", il_cb);
-                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0 || split_kl->type == GGML_TYPE_TURBO3C_0)) {
                     if (Vcur->type != GGML_TYPE_F32) Vcur = ggml_cast(ctx0, Vcur, GGML_TYPE_F32);
                     Vcur = ggml_turbo_wht(ctx0, Vcur, 0, 0, nullptr);
                     cb(Vcur, "Vcur_turbo_wht", il_cb);
@@ -2730,7 +2730,7 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                 if (cparams.v_cache_hadamard) {
                     cur = ggml_hadamard(ctx0, cur, n_embd_head_v);
                     cb(cur, "flash_attn_h", il_cb);
-                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0)) {
+                } else if (split_kl && (split_kl->type == GGML_TYPE_TURBO3_0 || split_kl->type == GGML_TYPE_TURBO4_0 || split_kl->type == GGML_TYPE_TURBO2_0 || split_kl->type == GGML_TYPE_TURBO3C_0)) {
                     if (cur->type != GGML_TYPE_F32) cur = ggml_cast(ctx0, cur, GGML_TYPE_F32);
                     cur = ggml_turbo_wht(ctx0, cur, 1, 0, nullptr); // inverse WHT
                     cb(cur, "flash_attn_turbo_iwht", il_cb);

@@ -777,6 +777,57 @@ static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo2_0(
     return (T)sum;
 }
 
+// ── TurboQuant 3C: float dot product for KQ using half2 Q path ──
+// Same structure as turbo3/4/2: dequantize K elements and dot with half2 Q pairs.
+template <typename T, int Dk>
+static __device__ __forceinline__ T vec_dot_fattn_vec_KQ_turbo3c_0(
+    const char * __restrict__ K_c, const void * __restrict__ Q_v, const int * __restrict__ Q_q8, const void * __restrict__ Q_ds_v) {
+
+    const block_turbo3c_0 * K = (const block_turbo3c_0 *) K_c;
+    GGML_UNUSED(Q_v);
+
+    // DP4A path: Q is quantized as q8_1 (int8 packed in int32), K is decoded to int8 via turbo3c_int_element.
+    // dot = sum(K_int8[i] * Q_int8[i]) * K.norm * TURBO3C_SCALE * Q.d
+    constexpr float TURBO3C_SCALE = 0.023568f;
+
+    T sum = 0.0f;
+
+#pragma unroll
+    for (int k_KQ_0 = 0; k_KQ_0 < Dk/sizeof(int); k_KQ_0 += WARP_SIZE) {
+        const int k_KQ = k_KQ_0 + threadIdx.x;
+
+        // Each k_KQ covers 4 elements (sizeof(int) = 4 bytes = 4 int8 values)
+        const int elem0 = k_KQ * 4;
+        const int ib = elem0 / QK_TURBO3C;
+        const int ib_offset = elem0 % QK_TURBO3C;
+
+        // Pack 4 K elements as int8 into int32 for DP4A (batch decode: 1 qs load + 1 signs load)
+        const int v = turbo3c_int4_packed(&K[ib], ib_offset);
+
+        const int u = Q_q8[k_KQ_0 / WARP_SIZE];
+
+        const int sumi = ggml_cuda_dp4a(v, u, 0);
+
+        const float norm = __half2float(K[ib].norm);
+
+#ifdef FP16_AVAILABLE
+        if (std::is_same<T, half>::value) {
+            const half2 * Q_ds = (const half2 *) Q_ds_v;
+            const half2 ds = Q_ds[k_KQ_0 / WARP_SIZE];
+            // dot = sumi * K.norm * TURBO3C_SCALE * Q.d
+            // No zero-point correction needed (K int values are signed, mean ≠ 0 but no offset)
+            sum += (T)(((half)sumi) * __low2half(ds) * __float2half(norm * TURBO3C_SCALE));
+        } else
+#endif // FP16_AVAILABLE
+        {
+            const float2 * Q_ds = (const float2 *) Q_ds_v;
+            sum += (T)(sumi * Q_ds[k_KQ_0 / WARP_SIZE].x * norm * TURBO3C_SCALE);
+        }
+    }
+
+    return sum;
+}
+
 // ── TurboQuant V dequantize (per-element) — WHT already baked in ──
 template <typename T>
 static __device__ __forceinline__ T dequantize_1_turbo3_0(const void * __restrict__ vx, const int64_t i) {
@@ -800,6 +851,14 @@ static __device__ __forceinline__ T dequantize_1_turbo2_0(const void * __restric
     const int64_t ib = i / QK_TURBO2;
     const float norm = __half2float(x[ib].norm);
     return (T)turbo2_dequant_element(&x[ib], (int)(i % QK_TURBO2), norm);
+}
+
+template <typename T>
+static __device__ __forceinline__ T dequantize_1_turbo3c_0(const void * __restrict__ vx, const int64_t i) {
+    const block_turbo3c_0 * x = (const block_turbo3c_0 *) vx;
+    const int64_t ib = i / QK_TURBO3C;
+    const float norm = __half2float(x[ib].norm);
+    return (T)turbo3c_dequant_element(&x[ib], (int)(i % QK_TURBO3C), norm);
 }
 
 template <typename Tds>
@@ -1024,9 +1083,10 @@ constexpr __device__ vec_dot_KQ_f16_t get_vec_dot_KQ_f16(ggml_type type_K) {
            type_K == GGML_TYPE_ISO3_0    ? vec_dot_fattn_vec_KQ_iso3_0<half, Dk>    :
            type_K == GGML_TYPE_PLANAR4_0 ? vec_dot_fattn_vec_KQ_planar4_0<half, Dk> :
            type_K == GGML_TYPE_ISO4_0    ? vec_dot_fattn_vec_KQ_iso4_0<half, Dk>    :
-           type_K == GGML_TYPE_TURBO3_0  ? vec_dot_fattn_vec_KQ_turbo3_0<half, Dk>  :
-           type_K == GGML_TYPE_TURBO4_0  ? vec_dot_fattn_vec_KQ_turbo4_0<half, Dk>  :
-           type_K == GGML_TYPE_TURBO2_0  ? vec_dot_fattn_vec_KQ_turbo2_0<half, Dk>  :
+           type_K == GGML_TYPE_TURBO3_0  ? vec_dot_fattn_vec_KQ_turbo3_0<half, Dk>   :
+           type_K == GGML_TYPE_TURBO4_0  ? vec_dot_fattn_vec_KQ_turbo4_0<half, Dk>   :
+           type_K == GGML_TYPE_TURBO2_0  ? vec_dot_fattn_vec_KQ_turbo2_0<half, Dk>   :
+           type_K == GGML_TYPE_TURBO3C_0 ? vec_dot_fattn_vec_KQ_turbo3c_0<half, Dk>  :
            nullptr;
 }
 
@@ -1047,6 +1107,7 @@ constexpr __device__ vec_dot_KQ_f32_t get_vec_dot_KQ_f32(ggml_type type_K) {
            type_K == GGML_TYPE_TURBO3_0  ? vec_dot_fattn_vec_KQ_turbo3_0<float, Dk>  :
            type_K == GGML_TYPE_TURBO4_0  ? vec_dot_fattn_vec_KQ_turbo4_0<float, Dk>  :
            type_K == GGML_TYPE_TURBO2_0  ? vec_dot_fattn_vec_KQ_turbo2_0<float, Dk>  :
+           type_K == GGML_TYPE_TURBO3C_0 ? vec_dot_fattn_vec_KQ_turbo3c_0<float, Dk> :
            nullptr;
 }
 
@@ -1063,9 +1124,10 @@ constexpr __device__ dequantize_1_f16_t get_dequantize_1_f16(ggml_type type_V) {
            type_V == GGML_TYPE_ISO3_0    ? dequantize_1_iso3_0<half>    :
            type_V == GGML_TYPE_PLANAR4_0 ? dequantize_1_planar4_0<half> :
            type_V == GGML_TYPE_ISO4_0    ? dequantize_1_iso4_0<half>    :
-           type_V == GGML_TYPE_TURBO3_0  ? dequantize_1_turbo3_0<half>  :
-           type_V == GGML_TYPE_TURBO4_0  ? dequantize_1_turbo4_0<half>  :
-           type_V == GGML_TYPE_TURBO2_0  ? dequantize_1_turbo2_0<half>  :
+           type_V == GGML_TYPE_TURBO3_0  ? dequantize_1_turbo3_0<half>   :
+           type_V == GGML_TYPE_TURBO4_0  ? dequantize_1_turbo4_0<half>   :
+           type_V == GGML_TYPE_TURBO2_0  ? dequantize_1_turbo2_0<half>   :
+           type_V == GGML_TYPE_TURBO3C_0 ? dequantize_1_turbo3c_0<half>  :
            nullptr;
 }
 
@@ -1085,6 +1147,7 @@ constexpr __device__ dequantize_1_f32_t get_dequantize_1_f32(ggml_type type_V) {
            type_V == GGML_TYPE_TURBO3_0  ? dequantize_1_turbo3_0<float>  :
            type_V == GGML_TYPE_TURBO4_0  ? dequantize_1_turbo4_0<float>  :
            type_V == GGML_TYPE_TURBO2_0  ? dequantize_1_turbo2_0<float>  :
+           type_V == GGML_TYPE_TURBO3C_0 ? dequantize_1_turbo3c_0<float> :
            nullptr;
 }
 

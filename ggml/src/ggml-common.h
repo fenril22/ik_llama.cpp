@@ -372,6 +372,19 @@ typedef struct {
 } block_turbo4_0;
 static_assert(sizeof(block_turbo4_0) == 68, "wrong turbo4_0 block size");
 
+// TurboQuant 3C: WHT rotation + 3-bit integer-table quant (DP4A compatible)
+// Same block layout as turbo3_0; different centroid table (integer ratios [-8,-5,-3,-1,1,3,5,8]).
+// Allows GPU DP4A integer dot product in flash-attn decode path.
+// = 50 bytes per 128 values = 3.125 bpv
+#define QK_TURBO3C 128
+#define QK_TURBO3C_GROUP 128
+typedef struct {
+    ggml_half  norm;
+    uint8_t    qs[QK_TURBO3C / 4];    // lower 2-bit of 3-bit index (4 per byte)
+    uint8_t    signs[QK_TURBO3C / 8]; // upper 1-bit of 3-bit index (8 per byte)
+} block_turbo3c_0;
+static_assert(sizeof(block_turbo3c_0) == sizeof(ggml_half) + QK_TURBO3C/4 + QK_TURBO3C/8, "wrong turbo3c_0 block size/padding");
+
 // TurboQuant 2-bit: WHT rotation + 2-bit PolarQuant (Lloyd-Max)
 // Block: norm(fp16=2B) + qs[32B: 2-bit indices, 4 per byte]
 // = 34 bytes per 128 values = 2.125 bpv

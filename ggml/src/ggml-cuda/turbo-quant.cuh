@@ -288,3 +288,105 @@ static __device__ __forceinline__ float turbo2_dequant_element(
     uint8_t idx = (x->qs[j / 4] >> ((j % 4) * 2)) & 0x3;
     return TURBO_CENTROIDS_2BIT[idx] * norm;
 }
+
+// ---- TurboQuant 3C: integer-table 3-bit, DP4A compatible ----
+// Integer table: [-8,-5,-3,-1,1,3,5,8], scale = 0.023568f
+// Same block layout as turbo3_0 (qs + signs), different centroid values.
+
+static __constant__ float TURBO_CENTROIDS_3CBIT[8] = {
+    -8.0f * 0.023568f, -5.0f * 0.023568f, -3.0f * 0.023568f, -1.0f * 0.023568f,
+     1.0f * 0.023568f,  3.0f * 0.023568f,  5.0f * 0.023568f,  8.0f * 0.023568f
+};
+
+// Integer values (for DP4A path): stored as int8 constants
+// [-8,-5,-3,-1,1,3,5,8]
+static __constant__ int8_t TURBO_INTS_3CBIT[8] = { -8, -5, -3, -1, 1, 3, 5, 8 };
+
+static __constant__ float TURBO_MID_3CBIT[7] = {
+    -6.5f * 0.023568f,
+    -4.0f * 0.023568f,
+    -2.0f * 0.023568f,
+     0.0f,
+     2.0f * 0.023568f,
+     4.0f * 0.023568f,
+     6.5f * 0.023568f,
+};
+
+static __device__ __forceinline__ uint8_t turbo3c_nearest_centroid(float val) {
+    if      (val < TURBO_MID_3CBIT[0]) return 0;
+    else if (val < TURBO_MID_3CBIT[1]) return 1;
+    else if (val < TURBO_MID_3CBIT[2]) return 2;
+    else if (val < TURBO_MID_3CBIT[3]) return 3;
+    else if (val < TURBO_MID_3CBIT[4]) return 4;
+    else if (val < TURBO_MID_3CBIT[5]) return 5;
+    else if (val < TURBO_MID_3CBIT[6]) return 6;
+    else                                return 7;
+}
+
+static __device__ void quantize_f32_turbo3c_0_block(const float * __restrict__ src,
+                                                     block_turbo3c_0 * __restrict__ dst) {
+    for (int j = 0; j < QK_TURBO3C / 4; j++) dst->qs[j] = 0;
+    for (int j = 0; j < QK_TURBO3C / 8; j++) dst->signs[j] = 0;
+
+    for (int j = 0; j < QK_TURBO3C; j++) {
+        uint8_t idx = turbo3c_nearest_centroid(src[j]);
+        dst->qs[j / 4] |= (idx & 0x3) << ((j % 4) * 2);
+        if (idx & 0x4) {
+            dst->signs[j / 8] |= (1 << (j % 8));
+        }
+    }
+}
+
+// LUT-free integer extraction: register-packed centroid tables
+//   NEG_PACKED = [-8,-5,-3,-1] as int8x4 = 0xFFFDFBF8
+//   POS_PACKED = [+1,+3,+5,+8] as int8x4 = 0x08050301
+static __device__ __forceinline__ int8_t turbo3c_int_from_bits(uint8_t low2, uint8_t hi1) {
+    constexpr int NEG_PACKED = (int)0xFFFDFBF8;
+    constexpr int POS_PACKED = (int)0x08050301;
+    return (int8_t)((hi1 ? POS_PACKED : NEG_PACKED) >> (low2 * 8));
+}
+
+// Float dequant (used in decode fattn-vec path for V, and for F16 conversion)
+// LUT-free: computes int8 value from register constants, then scales.
+static __device__ __forceinline__ float turbo3c_dequant_element(
+        const block_turbo3c_0 * __restrict__ x, int j, float norm) {
+    uint8_t low2 = (x->qs[j / 4] >> ((j % 4) * 2)) & 0x3;
+    uint8_t hi1  = (x->signs[j / 8] >> (j % 8)) & 0x1;
+    constexpr float TURBO3C_SCALE = 0.023568f;
+    return (float)turbo3c_int_from_bits(low2, hi1) * TURBO3C_SCALE * norm;
+}
+
+// Integer dequant (returns int8 table value, for DP4A KQ dot product)
+static __device__ __forceinline__ int8_t turbo3c_int_element(
+        const block_turbo3c_0 * __restrict__ x, int j) {
+    uint8_t low2 = (x->qs[j / 4] >> ((j % 4) * 2)) & 0x3;
+    uint8_t hi1  = (x->signs[j / 8] >> (j % 8)) & 0x1;
+    return turbo3c_int_from_bits(low2, hi1);
+}
+
+// Batch decode: pack 4 consecutive int8 values into int32 for DP4A.
+// j must be aligned to 4 (i.e., j % 4 == 0).
+// Single load from qs[] (1 byte = 4 x 2bit) and one load from signs[] (4 consecutive bits).
+// LUT-free: uses register-packed centroid tables instead of __constant__ memory lookups.
+//   NEG_PACKED = [-8,-5,-3,-1] as int8x4 = 0xFFFDFBF8
+//   POS_PACKED = [+1,+3,+5,+8] as int8x4 = 0x08050301
+static __device__ __forceinline__ int turbo3c_int4_packed(
+        const block_turbo3c_0 * __restrict__ x, int j) {
+    const uint8_t qs_byte   = x->qs[j / 4];
+    const uint8_t sign_bits = (x->signs[j / 8] >> (j % 8)) & 0xF;
+
+    constexpr int NEG_PACKED = (int)0xFFFDFBF8;  // [-8,-5,-3,-1]
+    constexpr int POS_PACKED = (int)0x08050301;   // [+1,+3,+5,+8]
+
+    int v;
+    int8_t * v8 = (int8_t *)&v;
+    const uint8_t low2_0 = (qs_byte >> 0) & 0x3;
+    const uint8_t low2_1 = (qs_byte >> 2) & 0x3;
+    const uint8_t low2_2 = (qs_byte >> 4) & 0x3;
+    const uint8_t low2_3 = (qs_byte >> 6) & 0x3;
+    v8[0] = (int8_t)(((sign_bits & 1)        ? POS_PACKED : NEG_PACKED) >> (low2_0 * 8));
+    v8[1] = (int8_t)((((sign_bits >> 1) & 1) ? POS_PACKED : NEG_PACKED) >> (low2_1 * 8));
+    v8[2] = (int8_t)((((sign_bits >> 2) & 1) ? POS_PACKED : NEG_PACKED) >> (low2_2 * 8));
+    v8[3] = (int8_t)((((sign_bits >> 3) & 1) ? POS_PACKED : NEG_PACKED) >> (low2_3 * 8));
+    return v;
+}

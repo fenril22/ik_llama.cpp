@@ -66,6 +66,33 @@ __device__ __forceinline__ void quantize_f32_turbo4_0_setrows(
     dst->rnorm = __float2half(0.0f);
 }
 
+// turbo3c: L2 norm + 3-bit integer-table pack (128 elements, serial, DP4A compatible)
+__device__ __forceinline__ void quantize_f32_turbo3c_0_setrows(
+        const float * __restrict__ src, block_turbo3c_0 * __restrict__ dst) {
+
+    float norm_sq = 0.0f;
+    for (int j = 0; j < QK_TURBO3C; j++) {
+        norm_sq += src[j] * src[j];
+    }
+    const float grp_norm = sqrtf(norm_sq);
+    const float inv = (grp_norm > 1e-10f) ? 1.0f / grp_norm : 0.0f;
+
+    for (int j = 0; j < QK_TURBO3C / 4; j++) dst->qs[j] = 0;
+    for (int j = 0; j < QK_TURBO3C / 8; j++) dst->signs[j] = 0;
+
+    float recon_sq = 0.0f;
+    for (int j = 0; j < QK_TURBO3C; j++) {
+        const uint8_t idx = turbo3c_nearest_centroid(src[j] * inv);
+        dst->qs[j / 4]    |= (idx & 0x3) << ((j % 4) * 2);
+        if (idx & 0x4) dst->signs[j / 8] |= (1 << (j % 8));
+        const float c = TURBO_CENTROIDS_3CBIT[idx];
+        recon_sq += c * c;
+    }
+
+    const float rn = sqrtf(recon_sq);
+    dst->norm = __float2half((rn > 1e-10f) ? grp_norm / rn : grp_norm);
+}
+
 // turbo2: L2 norm + 2-bit centroid pack (128 elements, serial)
 __device__ __forceinline__ void quantize_f32_turbo2_0_setrows(
         const float * __restrict__ src, block_turbo2_0 * __restrict__ dst) {
