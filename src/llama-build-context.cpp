@@ -124,7 +124,8 @@ void llm_build_context::free() {
 ggml_cgraph * llm_build_context::build_k_shift() {
     struct ggml_cgraph * gf = ggml_new_graph_custom(ctx0, model.max_nodes(n_tokens), false);
 
-    GGML_ASSERT(kv_self.size == n_ctx);
+    // Note: kv_self.size may be < n_ctx when H2O kv_budget is active
+    // GGML_ASSERT(kv_self.size == n_ctx);
 
     const auto & rope_type_shift = hparams.rope_type == LLAMA_ROPE_TYPE_MROPE || hparams.rope_type == LLAMA_ROPE_TYPE_IMROPE
         // @ngxson : this is a workaround
@@ -562,7 +563,8 @@ void llm_build_context::llm_build_kv_store(
     const int64_t n_head_kv     = hparams.n_head_kv(il);
     const int64_t n_embd_head_k = hparams.n_embd_head_k(il);
 
-    GGML_ASSERT(kv.size == n_ctx);
+    // Note: kv.size may be < n_ctx when H2O kv_budget is active
+    // GGML_ASSERT(kv.size == n_ctx);
 
     //struct ggml_tensor * k_cache_view = ggml_view_1d(ctx, kv.k_l[il], n_tokens*n_embd_k_gqa,
     //        (ggml_row_size(kv.k_l[il]->type, n_embd_k_gqa))*kv_head);
@@ -1632,10 +1634,11 @@ static ggml_tensor * llm_build_kqv(
             // split cached v into n_head heads
         struct ggml_tensor * v;
         if (kv.v_trans) {
+            const int64_t kv_phys_size = lctx.kv_self.size; // physical KV cache size (may be < n_ctx)
             v = ggml_view_3d(ctx, v_cache,
                     n_kv, n_embd_head_v, n_head_kv,
-                    ggml_element_size(v_cache)*n_ctx,
-                    ggml_element_size(v_cache)*n_ctx*n_embd_head_v,
+                    ggml_element_size(v_cache)*kv_phys_size,
+                    ggml_element_size(v_cache)*kv_phys_size*n_embd_head_v,
                     0);
         } else {
             v = ggml_view_3d(ctx, v_cache,
@@ -1686,7 +1689,8 @@ static ggml_tensor * llm_build_kqv(
             }
             cb(kq, "kq_soft_max_ext", il);
 
-            GGML_ASSERT(kv.size == n_ctx);
+            // Note: kv.size may be < n_ctx when H2O kv_budget is active
+            // GGML_ASSERT(kv.size == n_ctx);
 
             struct ggml_tensor * kqv = ggml_mul_mat(ctx, v, kq);
             cb(kqv, "kqv", il);
@@ -2661,7 +2665,8 @@ ggml_tensor * llm_build_context::build_std_attention(ggml_cgraph * gf, ggml_tens
                 const int64_t n_embd_head_k = hparams.n_embd_head_k(il);
                 const int64_t n_head_kv     = split_wk->ne[1] / n_embd_head_k;
 
-                GGML_ASSERT(kv_self.size == cparams.n_ctx);
+                // Note: kv_self.size may be < n_ctx when H2O kv_budget is active
+                // GGML_ASSERT(kv_self.size == cparams.n_ctx);
 
                 auto idx = 2*wq->n_device*il + 2*id;
                 GGML_ASSERT(idx+1 < (int)lctx.cache_copies.size());

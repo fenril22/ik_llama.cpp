@@ -57,6 +57,10 @@ add_library(llama
             llama-hparams.cpp
             llama-delta-net.h
             llama-delta-net.cpp
+            llama-h2o.h
+            llama-h2o.cpp
+            llama-snapshot-store.h
+            llama-snapshot-store.cpp
             unicode.h
             unicode.cpp
             unicode-data.cpp

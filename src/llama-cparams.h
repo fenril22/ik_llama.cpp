@@ -26,6 +26,7 @@ struct llama_cparams {
     float yarn_beta_fast;
     float yarn_beta_slow;
     float defrag_thold;
+    int32_t kv_budget;        // H2O: max KV cache physical entries, -1 = use n_ctx
 
     bool embeddings;
     bool causal_attn;

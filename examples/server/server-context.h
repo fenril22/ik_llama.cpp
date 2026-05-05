@@ -2,6 +2,7 @@
 #include "server-queue.h"
 #include "speculative.h"
 #include "json-schema-to-grammar.h"
+#include "llama-snapshot-store.h"
 #include <nlohmann/json_fwd.hpp>
 
 #include <cstddef>
@@ -285,6 +286,7 @@ struct server_context {
     std::unique_ptr<server_prompt_cache> prompt_cache;
 
     server_metrics metrics;
+    kv_snapshot_store snapshot_store;
 
     common_chat_templates_ptr chat_templates;
     server_chat_params  chat_params;

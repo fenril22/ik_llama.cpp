@@ -2,6 +2,7 @@
 #include "chat.h"
 #include "console.h"
 #include "llama.h"
+#include "llama-h2o.h"
 #include <cassert>
 #include <cinttypes>
 #include <cmath>
@@ -338,7 +339,7 @@ int main(int argc, char ** argv) {
         LOG("guidance_offset:     %s", log_tostr(guidance_offset));
     }
 
-    if ((int) embd_inp.size() > n_ctx - 4) {
+    if (params.kv_budget <= 0 && (int) embd_inp.size() > n_ctx - 4) {
         LOG_TEE("%s: error: prompt is too long (%d tokens, max %d)\n", __func__, (int) embd_inp.size(), n_ctx - 4);
         return 1;
     }
@@ -591,11 +592,21 @@ int main(int argc, char ** argv) {
             }
 
             if (ga_n == 1) {
+                // H2O KV cache eviction
+                {
+                    h2o_params h2o;
+                    h2o.kv_budget         = params.kv_budget;
+                    h2o.kv_sink           = params.kv_sink;
+                    h2o.kv_evict_interval = params.kv_evict_interval;
+                    h2o_maybe_evict(ctx, h2o, n_past);
+                }
+
                 // infinite text generation via context shifting
                 // if we run out of context:
                 // - take the n_keep first tokens from the original prompt (via n_past)
                 // - take half of the last (n_ctx - n_keep) tokens and recompute the logits in batches
-                if (n_past + (int) embd.size() + std::max<int>(0, guidance_offset) >= n_ctx) {
+                // When H2O is active, eviction handles KV overflow instead of context shift.
+                if (params.kv_budget <= 0 && n_past + (int) embd.size() + std::max<int>(0, guidance_offset) >= n_ctx) {
                     if (params.n_predict == -2) {
                         LOG_TEE("\n\n%s: context full and n_predict == -%d => stopping\n", __func__, params.n_predict);
                         break;
@@ -713,6 +724,15 @@ int main(int argc, char ** argv) {
                 int n_eval = (int) embd.size() - i;
                 if (n_eval > params.n_batch) {
                     n_eval = params.n_batch;
+                }
+
+                // H2O: ensure KV cache has room for this batch
+                if (params.kv_budget > 0) {
+                    h2o_params h2o;
+                    h2o.kv_budget         = params.kv_budget;
+                    h2o.kv_sink           = params.kv_sink;
+                    h2o.kv_evict_interval = params.kv_evict_interval;
+                    h2o_ensure_budget(ctx, h2o, n_eval);
                 }
 
                 LOG("eval: %s\n", LOG_TOKENS_TOSTR_PRETTY(ctx, embd).c_str());

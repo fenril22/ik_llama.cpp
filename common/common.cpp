@@ -808,6 +808,26 @@ bool gpt_params_find_arg(int argc, char ** argv, const std::string & arg, gpt_pa
         params.defrag_thold = std::stof(argv[i]);
         return true;
     }
+    if (arg == "--kv-budget") {
+        CHECK_ARG
+        params.kv_budget = std::stoi(argv[i]);
+        return true;
+    }
+    if (arg == "--kv-sink") {
+        CHECK_ARG
+        params.kv_sink = std::stoi(argv[i]);
+        return true;
+    }
+    if (arg == "--kv-evict-interval") {
+        CHECK_ARG
+        params.kv_evict_interval = std::stoi(argv[i]);
+        return true;
+    }
+    if (arg == "--kv-snapshot-max-mem") {
+        CHECK_ARG
+        params.kv_snapshot_max_mem = std::stoi(argv[i]);
+        return true;
+    }
     if (arg == "--max-extra-alloc" || arg == "-mea") {
         CHECK_ARG
         params.max_extra_alloc_MiB = std::stoi(argv[i]);
@@ -3663,6 +3683,7 @@ struct llama_context_params common_context_params_to_llama(const gpt_params & pa
     cparams.pooling_type      = params.pooling_type;
     cparams.attention_type    = params.attention_type;
     cparams.defrag_thold      = params.defrag_thold;
+    cparams.kv_budget         = params.kv_budget;
     cparams.cb_eval           = params.cb_eval;
     cparams.cb_eval_user_data = params.cb_eval_user_data;
     cparams.offload_kqv       = !params.no_kv_offload;

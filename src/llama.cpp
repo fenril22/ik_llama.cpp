@@ -5186,8 +5186,9 @@ static int32_t llama_kv_cache_update_internal(struct llama_context & lctx) {
     if (need_reserve) {
         // TODO: extract to a function
         // build worst-case graph
-        int n_tokens = (int)std::min(lctx.cparams.n_ctx, lctx.cparams.n_ubatch);
-        int n_past = lctx.cparams.n_ctx - n_tokens;
+        uint32_t kv_phys = lctx.kv_self.size; // physical KV cache size (may be < n_ctx with H2O)
+        int n_tokens = (int)std::min(kv_phys, lctx.cparams.n_ubatch);
+        int n_past = kv_phys - n_tokens;
         llama_token token = llama_token_bos(&lctx.model); // not actually used by llama_build_graph, but required to choose between token and embedding inputs graph
         ggml_cgraph * gf = llm_build_context::llama_build_graph(lctx, llama_batch_get_one(&token, n_tokens, n_past, 0), true, lctx.cparams.worst_graph_tokens);
 
@@ -5490,6 +5491,7 @@ struct llama_context_params llama_context_default_params() {
         /*.yarn_beta_slow              =*/ -1.0f,
         /*.yarn_orig_ctx               =*/ 0,
         /*.defrag_thold                =*/ -1.0f,
+        /*.kv_budget                   =*/ -1,
         /*.cb_eval                     =*/ nullptr,
         /*.cb_eval_user_data           =*/ nullptr,
         /*.type_k                      =*/ GGML_TYPE_F16,
@@ -5888,6 +5890,7 @@ struct llama_context * llama_init_from_model(
     cparams.yarn_beta_fast   = params.yarn_beta_fast >= 0.0f ? params.yarn_beta_fast : hparams.yarn_beta_fast;
     cparams.yarn_beta_slow   = params.yarn_beta_slow >= 0.0f ? params.yarn_beta_slow : hparams.yarn_beta_slow;
     cparams.defrag_thold     = params.defrag_thold;
+    cparams.kv_budget        = params.kv_budget;
     cparams.embeddings       = params.embeddings;
     cparams.offload_kqv      = params.offload_kqv;
     cparams.flash_attn       = params.flash_attn;
@@ -6030,6 +6033,18 @@ struct llama_context * llama_init_from_model(
     uint32_t kv_size = cparams.n_ctx;
     ggml_type type_k = params.type_k;
     ggml_type type_v = params.type_v;
+
+    // H2O: limit KV cache physical size to kv_budget if set
+    if (cparams.kv_budget > 0 && (uint32_t)cparams.kv_budget < kv_size) {
+        kv_size = (uint32_t)cparams.kv_budget;
+        // kv_size must be a multiple of the KV cache padding to avoid integer
+        // underflow in llama_kv_cache_cell_max() (pad stride loop).
+        const uint32_t kv_pad = llama_kv_cache_get_padding(cparams);
+        kv_size = (kv_size / kv_pad) * kv_pad;
+        if (kv_size == 0) kv_size = kv_pad; // ensure at least one block
+        LLAMA_LOG_INFO("%s: H2O kv_budget=%d, KV cache physical size reduced to %d (n_ctx=%d)\n",
+                       __func__, cparams.kv_budget, kv_size, cparams.n_ctx);
+    }
 
     // Mamba only needs a constant number of KV cache cells per sequence
     if (model->arch == LLM_ARCH_MAMBA) {
@@ -6282,7 +6297,8 @@ struct llama_context * llama_init_from_model(
                 }
             }
 
-            int n_tokens = (int)std::min(cparams.n_ctx, cparams.n_ubatch);
+            uint32_t kv_phys = ctx->kv_self.size; // physical KV cache size (may be < n_ctx with H2O)
+            int n_tokens = (int)std::min(kv_phys > 0 ? kv_phys : cparams.n_ctx, cparams.n_ubatch);
             const size_t max_nodes = model->max_nodes(n_tokens);
 
             // buffer used to store the computation graph and the tensor meta data
@@ -6308,7 +6324,7 @@ struct llama_context * llama_init_from_model(
             llama_repack_up_gate_exps(*ctx);
 
             // build worst-case graph
-            int n_past = cparams.n_ctx - n_tokens;
+            int n_past = (kv_phys > 0 ? kv_phys : cparams.n_ctx) - n_tokens;
             llama_token token = llama_token_bos(&ctx->model); // not actually used by llama_build_graph, but required to choose between token and embedding inputs graph
             ggml_cgraph * gf = llm_build_context::llama_build_graph(*ctx, llama_batch_get_one(&token, n_tokens, n_past, 0), true, cparams.worst_graph_tokens);
 

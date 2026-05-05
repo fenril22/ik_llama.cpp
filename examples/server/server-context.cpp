@@ -5,6 +5,7 @@
 
 #include "common.h"
 #include "llama.h"
+#include "llama-h2o.h"
 #include "log.h"
 #include "sampling.h"
 #include "speculative.h"
@@ -328,6 +329,11 @@ void server_context::init() {
     }
 
     metrics.init();
+
+    if (params_base.kv_snapshot_max_mem > 0) {
+        snapshot_store.set_max_memory((size_t)params_base.kv_snapshot_max_mem * 1024UL * 1024UL);
+        LOG_INFO("kv snapshot store enabled", {{"max_mem_mib", params_base.kv_snapshot_max_mem}});
+    }
 
     if (params_base.cache_ram_mib != 0) {
         if (params_base.cache_ram_mib < 0) {
@@ -3485,6 +3491,20 @@ void server_context::batch_pending_prompt(const int32_t n_ubatch, const int32_t 
                         else {
                             GGML_ASSERT(slot.ga_n == 1);
 
+                            // KV snapshot restore: if cache is empty (slot was stolen), try restoring from snapshot
+                            if (snapshot_store.get_max_memory() > 0 && slot.cache_tokens.empty()) {
+                                std::vector<llama_token> req_tokens = prompt_tokens.get_text_tokens();
+                                int restored = snapshot_store.restore(slot.ctx ? slot.ctx : ctx, slot.id, req_tokens);
+                                if (restored > 0) {
+                                    // Rebuild cache_tokens from req_tokens up to restored length so
+                                    // get_common_prefix() below sees the full restored prefix.
+                                    slot.cache_tokens = server_tokens(
+                                        std::vector<llama_token>(req_tokens.begin(), req_tokens.begin() + restored), false);
+                                    slot.n_past = restored;
+                                    SLT_INF(slot, "snapshot restored: %d tokens\n", restored);
+                                }
+                            }
+
                             // reuse any previously computed tokens that are common with the new prompt
                             common_prefix prefix = slot.cache_tokens.get_common_prefix(ctx, prompt_tokens, true); // string level match
                             common_prefix prefix_nonexact = slot.cache_tokens.get_common_prefix(ctx, prompt_tokens, false);
@@ -3943,6 +3963,13 @@ void server_context::release_slot_after_final_response(server_slot & slot) {
     if (params_base.do_checkpoint) {
         create_checkpoint(slot);
     }
+    if (snapshot_store.get_max_memory() > 0 && !slot.cache_tokens.empty()) {
+        std::vector<llama_token> tokens = slot.cache_tokens.get_text_tokens();
+        snapshot_store.save(slot.ctx ? slot.ctx : ctx, slot.id, tokens);
+        SLT_INF(slot, "snapshot saved: %zu tokens, store count=%d, mem=%.1f MiB\n",
+                tokens.size(), snapshot_store.count(),
+                snapshot_store.total_memory() / (1024.0 * 1024.0));
+    }
     slot.release();
     slot.released = true;
     metrics.on_prediction(slot);
@@ -4207,6 +4234,16 @@ void server_context::update_allowlist_state(server_slot& slot) {
 void server_context::process_batch_tokens(int32_t & n_batch) {
     for (int32_t i = 0; i < batch.n_tokens; i += n_batch) {
         const int32_t n_tokens = std::min(n_batch, batch.n_tokens - i);
+
+        // H2O: ensure KV cache has room before decode
+        if (params_base.kv_budget > 0) {
+            h2o_params h2o;
+            h2o.kv_budget         = params_base.kv_budget;
+            h2o.kv_sink           = params_base.kv_sink;
+            h2o.kv_evict_interval = params_base.kv_evict_interval;
+            h2o_ensure_budget(ctx, h2o, n_tokens);
+        }
+
         extend_context(n_tokens);
 
         llama_batch batch_view = {
@@ -4424,6 +4461,19 @@ void server_context::update_slots() {
         task.id_target = -1;
 
         queue_tasks.post(std::move(task));
+    }
+
+    // H2O KV cache eviction (per-slot)
+    if (params_base.kv_budget > 0) {
+        h2o_params h2o;
+        h2o.kv_budget         = params_base.kv_budget;
+        h2o.kv_sink           = params_base.kv_sink;
+        h2o.kv_evict_interval = params_base.kv_evict_interval;
+        for (auto & slot : slots) {
+            if (slot.is_processing()) {
+                h2o_maybe_evict(ctx, h2o, slot.n_past, slot.id);
+            }
+        }
     }
 
     // apply context-shift if needed
