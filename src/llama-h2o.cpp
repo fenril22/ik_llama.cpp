@@ -205,7 +205,7 @@ int h2o_maybe_evict(struct llama_context * ctx, const h2o_params & params, int n
         }
         n_to_evict = seq_count - params.kv_budget;
     } else {
-        const int target = (int)(params.kv_budget * 0.8);
+        const int target = (int)(params.kv_budget * 0.7);
         n_to_evict = kv_used - target;
     }
 
