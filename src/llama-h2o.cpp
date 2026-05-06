@@ -194,7 +194,7 @@ int h2o_maybe_evict(struct llama_context * ctx, const h2o_params & params, int n
     if (!force && (n_past % params.kv_evict_interval != 0)) return 0;
 
     const int kv_used = llama_get_kv_cache_used_cells(ctx);
-    if (kv_used <= params.kv_budget) return 0;
+    if (kv_used <= (int)(params.kv_budget * 0.9)) return 0;
 
     int n_to_evict;
     if (seq_id >= 0) {
