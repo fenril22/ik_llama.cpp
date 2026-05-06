@@ -223,7 +223,7 @@ int h2o_ensure_budget(struct llama_context * ctx, const h2o_params & params,
     if (kv_free >= n_needed) return 0;
 
     // Evict enough for n_needed contiguous free slots
-    int n_to_evict = n_needed - kv_free;
+    int n_to_evict = n_needed;
 
     return h2o_do_evict(ctx, params, n_to_evict, seq_id);
 }
