@@ -40,3 +40,70 @@ With the current setup (2 proactive evictions per run), the actual impact is ~18
 - Integration points: `llama_context` alloc/free hooks for device buffer, both `h2o_maybe_evict` and `h2o_ensure_budget` call sites, hybrid-model `score_layer` path
 
 **Estimated new CUDA:** ~300–400 lines including integration.
+
+---
+
+# Performance Bottleneck Analysis (2026-05-06)
+
+## Environment
+
+- GPU: RTX 3070 (8 GB VRAM, 448 GB/s bandwidth)
+- CPU: AMD Ryzen 9 9950X (16C/32T, 24 logical cores available)
+- Model: Qwen3.6-35B-A3B-UD-Q3_K_XL.gguf (MoE, Q3_K_XL)
+- Config: `-c 204800 --kv-budget 100000 --n-cpu-moe 31 -ngl 99`
+
+## Observed Performance
+
+| Phase | Speed |
+|---|---|
+| Prefill | ~644 tok/s |
+| Decode | ~33 tok/s |
+
+## Bottleneck: CPU MoE (not GPU memory bandwidth)
+
+Contrary to initial expectation, decode is **not** GPU memory-bandwidth-limited.
+
+Measured during decode:
+- GPU SM utilization: **71–72%** (headroom exists)
+- GPU VRAM bandwidth utilization: **60%** (headroom exists)
+- CPU utilization: **~47%** (~11 threads, significant idle capacity)
+
+The bottleneck is **CPU MoE expert computation**: with `--n-cpu-moe 31`, each decode
+step dispatches 31 MoE expert layers to CPU sequentially, creating a CPU↔GPU sync point
+per MoE block per token.
+
+## Thread Count Sweep (`-t` parameter)
+
+Tested `-t 12` (baseline) through `-t 24` to find the optimal decode thread count:
+
+| `-t` | Prefill (tok/s) | Decode (tok/s) |
+|---|---|---|
+| 12 (baseline) | 643 | 33.0 |
+| 16 | 644 | 33.1 |
+| 20 | 644 | 32.3 |
+| 24 | 644 | 23.6 ← regression |
+
+**Findings:**
+- Prefill is GPU-bound and unaffected by `-t`
+- Decode peaks at `-t 16` but improvement over `-t 12` is marginal (+0.3%)
+- `-t 24` causes severe regression due to contention with `-tb 24` (prefill threads)
+- **`-t 12` is effectively optimal** — decode speed is not thread-count-limited
+
+## Why decode cannot be improved further (current hardware)
+
+Decode at 33 tok/s with CPU MoE is constrained by the serial CPU↔GPU dispatch per MoE
+layer. To improve:
+
+1. **Reduce `--n-cpu-moe`** (move more MoE experts to GPU) — VRAM is at ~7.2/8 GB,
+   very limited headroom (~880 MB free during decode with `--n-cpu-moe 31`)
+2. **GPU upgrade** (e.g. RTX 4090: 24 GB VRAM, 1008 GB/s) — would allow all MoE
+   experts on GPU, eliminating CPU↔GPU sync; decode speed would increase 2–3×
+3. **Quantize further** (Q2_K etc.) — reduces model size, allows more experts on GPU,
+   at quality cost
+
+## PCIe Anomaly
+
+PCIe was observed running at **Gen 1 (2.5 GT/s)** instead of expected Gen 4 (16 GT/s).
+At current transfer volumes (~300 MB/s peak), this is not yet rate-limiting, but should
+be investigated (BIOS power-saving setting or hardware issue). If batch sizes increase or
+more data is transferred, Gen 1 will become a bottleneck.
