@@ -60,7 +60,7 @@ static bool cell_matches_seq(const llama_kv_cell & cell, llama_seq_id seq_id) {
 // Score all KV entries and evict the lowest-scoring contiguous block.
 // Contiguous eviction ensures kv_cache_find_slot can find free slots.
 static int h2o_do_evict(struct llama_context * ctx, const h2o_params & params,
-                        int n_to_evict, llama_seq_id seq_id) {
+                        int n_to_evict, llama_seq_id seq_id, const char * caller = "?") {
     if (n_to_evict <= 0) return 0;
 
     auto & cache = ctx->kv_self;
@@ -180,8 +180,8 @@ static int h2o_do_evict(struct llama_context * ctx, const h2o_params & params,
         if (cache.cells[i].pos < 0) actual_evicted++;
     }
 
-    if (h2o_verbose()) fprintf(stderr, "h2o: seq=%d evicted %d cells [%d..%d] pos=[%d..%d] (kv_used=%d)\n",
-            (int)seq_id, actual_evicted, best_start, best_start + n_to_evict - 1,
+    if (h2o_verbose()) fprintf(stderr, "h2o[%s]: seq=%d evicted %d cells [%d..%d] pos=[%d..%d] (kv_used=%d)\n",
+            caller, (int)seq_id, actual_evicted, best_start, best_start + n_to_evict - 1,
             (int)pos_min, (int)pos_max, llama_get_kv_cache_used_cells(ctx));
 
     return actual_evicted;
@@ -205,10 +205,11 @@ int h2o_maybe_evict(struct llama_context * ctx, const h2o_params & params, int n
         }
         n_to_evict = seq_count - params.kv_budget;
     } else {
-        n_to_evict = kv_used - params.kv_budget;
+        const int target = (int)(params.kv_budget * 0.8);
+        n_to_evict = kv_used - target;
     }
 
-    return h2o_do_evict(ctx, params, n_to_evict, seq_id);
+    return h2o_do_evict(ctx, params, n_to_evict, seq_id, "proactive");
 }
 
 int h2o_ensure_budget(struct llama_context * ctx, const h2o_params & params,
@@ -225,5 +226,5 @@ int h2o_ensure_budget(struct llama_context * ctx, const h2o_params & params,
     // Evict enough for n_needed contiguous free slots
     int n_to_evict = n_needed;
 
-    return h2o_do_evict(ctx, params, n_to_evict, seq_id);
+    return h2o_do_evict(ctx, params, n_to_evict, seq_id, "reactive");
 }
