@@ -135,7 +135,7 @@ static int h2o_do_evict(struct llama_context * ctx, const h2o_params & params,
     int ema_key = (seq_id >= 0) ? seq_id : -1;
     auto & ema = g_scores_ema[ema_key];
     if ((int)ema.size() < kv_size) {
-        ema.resize(kv_size, 0.0f);
+        ema.resize(kv_size, 1e29f);
     }
     const float alpha = 0.3f;
     for (int i = 0; i < kv_size; i++) {
