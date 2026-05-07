@@ -107,3 +107,62 @@ PCIe was observed running at **Gen 1 (2.5 GT/s)** instead of expected Gen 4 (16 
 At current transfer volumes (~300 MB/s peak), this is not yet rate-limiting, but should
 be investigated (BIOS power-saving setting or hardware issue). If batch sizes increase or
 more data is transferred, Gen 1 will become a bottleneck.
+
+---
+
+# KV Cache Related Features: Roles and Relationships
+
+## Overview
+
+There are three independent KV cache features in ik_llama.cpp. They do not overlap in purpose.
+
+## 1. H2O KV Cache Eviction (`--kv-budget`, `--kv-sink`, `--kv-evict-interval`)
+
+**Purpose:** Manage GPU KV cache capacity during inference.
+
+When the KV cache exceeds `--kv-budget`, low-scoring cells are **permanently deleted**
+to make room for new tokens. Scoring is based on K-K dot product similarity (EMA).
+
+- Scope: within a single inference run
+- Storage: GPU (physical KV cache)
+- Implementation: `src/llama-h2o.cpp`
+
+## 2. KV Snapshots (`--kv-snapshot-max-mem`)
+
+**Purpose:** Reuse KV state across requests (prefix caching).
+
+After a request completes, the full KV state of that sequence is saved to CPU RAM.
+When a new request arrives with a matching prefix, the saved KV state is restored,
+skipping prefill computation for the matched portion.
+
+- Scope: across requests (session-level)
+- Storage: CPU RAM (LRU eviction when limit exceeded)
+- Implementation: `src/llama-snapshot-store.cpp`, `examples/server/server-context.cpp`
+- **Server only** — not active in `llama-cli`
+
+**Note:** `--kv-snapshot-max-mem 8192` in `run_ik.sh` has no effect when using
+`llama-cli`. It is only meaningful when running `llama-server`.
+
+## 3. Context Checkpoints (`ctx_checkpoints_n`, default 32)
+
+**Purpose:** Recover KV state after a KV cache reset within a slot.
+
+During inference, partial KV states are saved per-slot at specific token positions
+(pos_min/pos_max). Used internally to recover from KV cache evictions or resets
+without reprocessing the full prompt.
+
+- Scope: within a single slot during inference
+- Storage: CPU RAM (per-slot, max 32 checkpoints by default)
+- Implementation: `examples/server/server-context.cpp`
+- **Server only** — produces the "created context checkpoint N of 32" log messages
+
+## Relationship to H2O
+
+| Feature | H2O relationship | Active in llama-cli |
+|---|---|---|
+| H2O eviction | — | Yes |
+| KV snapshots | Independent | No |
+| Context checkpoints | Independent | No |
+
+KV snapshots and context checkpoints are **not related to H2O eviction**.
+They are server-side features for multi-request and slot management scenarios.
