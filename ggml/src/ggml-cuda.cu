@@ -462,6 +462,8 @@ struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
 
             // add to the pool
             pool_size += reserve_size;
+            fprintf(stderr, "[VMM] pool grew: pool_size=%.1f MiB pool_used=%.1f MiB (added %.1f MiB)\n",
+                    pool_size/1048576.0f, pool_used/1048576.0f, reserve_size/1048576.0f);
 
             //printf("cuda pool[%d]: size increased to %llu MB (reserved %llu MB)\n",
             //       device, (unsigned long long) (pool_size/1024/1024),
