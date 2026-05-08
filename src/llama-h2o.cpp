@@ -228,3 +228,15 @@ int h2o_ensure_budget(struct llama_context * ctx, const h2o_params & params,
 
     return h2o_do_evict(ctx, params, n_to_evict, seq_id, "reactive");
 }
+
+void h2o_on_seq_rm(llama_seq_id seq_id) {
+    // Called whenever a sequence is fully evicted from the KV cache (all tokens
+    // removed, e.g. via llama_kv_cache_seq_rm(seq_id, -1, -1) or a full clear).
+    // Clears the EMA scores for that sequence so stale scores don't persist into
+    // the next request.  Pass seq_id < 0 to clear all sequences.
+    if (seq_id < 0) {
+        g_scores_ema.clear();
+    } else {
+        g_scores_ema.erase(seq_id);
+    }
+}

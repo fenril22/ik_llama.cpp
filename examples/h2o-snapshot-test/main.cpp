@@ -66,6 +66,7 @@ int main(int argc, char ** argv) {
 
     // Clear KV and restore
     llama_kv_cache_clear(ctx);
+    h2o_on_seq_rm(-1);
     fprintf(stderr, "KV cleared: kv_used=%d\n", llama_get_kv_cache_used_cells(ctx));
 
     auto t2 = std::chrono::high_resolution_clock::now();

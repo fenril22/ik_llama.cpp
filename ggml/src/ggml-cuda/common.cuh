@@ -849,6 +849,8 @@ struct ggml_backend_cuda_context {
 
     cudaStream_t streams[GGML_CUDA_MAX_DEVICES][GGML_CUDA_MAX_STREAMS] = { { nullptr } };
     cublasHandle_t cublas_handles[GGML_CUDA_MAX_DEVICES] = {nullptr};
+    void *         cublas_workspace[GGML_CUDA_MAX_DEVICES] = {};
+    size_t         cublas_workspace_size = 0;
 
     int   fusion = GGML_CUDA_FUSION;
     int   offload_batch_size = GGML_CUDA_MIN_BATCH_OFFLOAD;
@@ -887,6 +889,10 @@ struct ggml_backend_cuda_context {
             ggml_cuda_set_device(device);
             CUBLAS_CHECK(cublasCreate(&cublas_handles[device]));
             CUBLAS_CHECK(cublasSetMathMode(cublas_handles[device], CUBLAS_TF32_TENSOR_OP_MATH));
+            const size_t workspace_size = 32*1024*1024; // 32 MiB
+            CUDA_CHECK(cudaMalloc(&cublas_workspace[device], workspace_size));
+            cublas_workspace_size = workspace_size;
+            CUBLAS_CHECK(cublasSetWorkspace(cublas_handles[device], cublas_workspace[device], workspace_size));
         }
         return cublas_handles[device];
     }

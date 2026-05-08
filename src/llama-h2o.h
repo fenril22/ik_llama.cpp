@@ -23,3 +23,10 @@ int h2o_maybe_evict(struct llama_context * ctx, const h2o_params & params, int n
 // Returns the number of KV entries evicted (0 if none).
 int h2o_ensure_budget(struct llama_context * ctx, const h2o_params & params,
                       int n_needed, llama_seq_id seq_id = -1);
+
+// Notify H2O that a sequence's KV cache entries have been fully evicted (all
+// tokens removed, i.e. llama_kv_cache_seq_rm with p0=-1/p1=-1, or a full clear).
+// Must be called from any site that performs a top-level full-sequence eviction
+// so that stale EMA scores are not carried into the next request.
+// Pass seq_id < 0 to clear EMA scores for all sequences.
+void h2o_on_seq_rm(llama_seq_id seq_id);

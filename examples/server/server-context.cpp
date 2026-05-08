@@ -2663,6 +2663,7 @@ void server_context::process_single_task(server_task&& task) {
         // Erase token cache
         const size_t n_erased = slot->cache_tokens.size();
         llama_kv_cache_seq_rm(ctx, slot->id, -1, -1);
+        h2o_on_seq_rm(slot->id);
         slot->cache_tokens.keep_first(0);
         //slot->cache_tokens.clear();
         slot->server_cached_prompt.checkpoints.clear();
@@ -3583,6 +3584,7 @@ void server_context::batch_pending_prompt(const int32_t n_ubatch, const int32_t 
                 if (!llama_kv_cache_seq_rm(ctx, slot.id, p0, -1)) {
                     // could not partially delete (likely using a non-Transformer model)
                     llama_kv_cache_seq_rm(ctx, slot.id, -1, -1);
+                    h2o_on_seq_rm(slot.id);
 
                     p0 = (int)system_tokens.size();
                     if (p0 != 0) {

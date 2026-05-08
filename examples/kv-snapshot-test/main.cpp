@@ -120,6 +120,7 @@ int main(int argc, char ** argv) {
     fprintf(stderr, "\n=== Phase B: Agent B steals the slot ===\n");
 
     llama_kv_cache_clear(ctx);
+    h2o_on_seq_rm(-1);
 
     std::vector<llama_token> tokens_b =
         ::common_tokenize(model, AGENT_B_PROMPT, add_bos);
@@ -144,6 +145,7 @@ int main(int argc, char ** argv) {
 
     // Simulate slot eviction: clear the KV before Agent A tries to resume.
     llama_kv_cache_clear(ctx);
+    h2o_on_seq_rm(-1);
     fprintf(stderr, "KV cleared (slot eviction simulated): kv_used=%d\n",
             llama_get_kv_cache_used_cells(ctx));
 
