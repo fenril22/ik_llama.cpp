@@ -411,6 +411,20 @@ struct ggml_cuda_pool_vmm : public ggml_cuda_pool {
     explicit ggml_cuda_pool_vmm(int device) :
         device(device),
         granularity(ggml_cuda_info().devices[device].vmm_granularity) {
+        // Pre-allocate VMM pool to prevent incremental VRAM growth on first requests.
+        // Covers FA K_f16/V_f16 scratch buffers (~130 MiB peak). Override with
+        // GGML_CUDA_POOL_VMM_PREALLOC_MiB env var (default: 200 MiB).
+        const char * prealloc_env = getenv("GGML_CUDA_POOL_VMM_PREALLOC_MiB");
+        size_t prealloc_mib = prealloc_env ? (size_t)atoi(prealloc_env) : 200;
+        if (prealloc_mib > 0) {
+            size_t prealloc_size = prealloc_mib * 1024 * 1024;
+            size_t actual_size = 0;
+            void * ptr = this->alloc(prealloc_size, &actual_size);
+            if (ptr) {
+                this->free(ptr, actual_size);
+                GGML_CUDA_LOG_INFO("ggml_cuda_pool_vmm[%d]: pre-allocated %zu MiB\n", device, prealloc_mib);
+            }
+        }
     }
 
     ~ggml_cuda_pool_vmm() {

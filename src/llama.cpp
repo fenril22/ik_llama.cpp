@@ -6388,6 +6388,21 @@ struct llama_context * llama_init_from_model(
         }
     }
 
+    // Warmup: run a dummy decode at maximum batch size to fix compute buffer at its maximum size.
+    // This prevents VRAM from growing incrementally on first real requests.
+    {
+        const int n_warmup = (int)ctx->cparams.n_ubatch;
+        std::vector<llama_token> warmup_tokens(n_warmup, llama_token_bos(&ctx->model));
+        llama_batch warmup_batch = llama_batch_get_one(warmup_tokens.data(), n_warmup, 0, 0);
+        const int rc = llama_decode_internal(*ctx, warmup_batch);
+        if (rc == 0) {
+            llama_kv_cache_clear(ctx->kv_self);
+            LLAMA_LOG_INFO("%s: warmup complete, compute buffer fixed at max size (n_ubatch=%d)\n", __func__, n_warmup);
+        } else {
+            LLAMA_LOG_WARN("%s: warmup decode failed (ret=%d), compute buffer may grow on first request\n", __func__, rc);
+        }
+    }
+
     return ctx;
 }
 
